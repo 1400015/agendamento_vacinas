@@ -1,8 +1,0 @@
-{
-  "maxPorHora": 2,
-  "horaInicio": "09:00",
-  "horaFim": "18:30",
-  "intervaloMin": 30,
-  "mostrarSabado": true,
-  "pastaBackup": ""
-}
