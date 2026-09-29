@@ -90,6 +90,7 @@ body{background:#fff}main,.painel{max-width:none}}
     <h1>Central de Marcações de Vacinas<br>Farmácia Boavista</h1>
     <p id="pin-estado">A verificar o servidor…</p>
     <input id="pin-posto" placeholder="Nome do posto (ex.: Posto 1)">
+    <input id="pin-codigo" type="password" maxlength="6" placeholder="Código de arranque (só 1º acesso)" hidden>
     <input id="pin-input" type="password" maxlength="12" placeholder="PIN">
     <div class="erro-msg" id="pin-erro"></div>
     <button class="btn primario" style="width:100%" onclick="entrar()">Entrar</button>
@@ -148,6 +149,7 @@ body{background:#fff}main,.painel{max-width:none}}
       <h2 id="cal-periodo"></h2>
       <button class="btn" onclick="mudarSemana(1)">Semana seguinte →</button>
       <button class="btn mini" onclick="irParaSemanaAtual()">Hoje</button>
+      <input type="date" id="pdf-dia" title="Dia a exportar em PDF">
       <button class="btn mini" onclick="exportarCalPDF('dia')">PDF (dia)</button>
       <button class="btn mini" onclick="exportarCalPDF('semana')">PDF (semana completa)</button>
     </div>
@@ -155,7 +157,20 @@ body{background:#fff}main,.painel{max-width:none}}
   </section>
 
   <section id="tab-h" class="painel" hidden>
-    <p class="mut">Últimas 500 operações, com o posto que as executou.</p>
+    <div class="barra" style="justify-content:space-between">
+      <p class="mut" style="margin:0">Últimas 500 operações, com o posto que as executou.</p>
+      <div style="display:flex;gap:8px">
+        <button class="btn" onclick="exportarJSON()">Exportar dados (JSON)</button>
+      </div>
+    </div>
+    <div class="barra" style="border:1px solid var(--borda);border-radius:8px;padding:10px 12px;margin-bottom:12px">
+      <div class="campo" style="flex:1;min-width:260px"><label>Backup automático — pasta noutro posto da rede (vazio = pasta local «backups»)</label>
+        <input id="cfg-backup" placeholder="\\POSTO-SALA\vacinas-backup ou /mnt/backup/vacinas" style="width:100%"></div>
+      <button class="btn" onclick="guardarBackupCfg()">Guardar</button>
+      <button class="btn" onclick="testarBackup()">Testar caminho</button>
+      <button class="btn" onclick="backupAgora()">Backup agora</button>
+      <span class="mut" id="backup-estado"></span>
+    </div>
     <div style="overflow-x:auto">
       <table>
         <thead><tr><th>Quando</th><th>Posto</th><th>Ação</th><th>Detalhe</th></tr></thead>
@@ -189,11 +204,26 @@ function banner(txt,erro){const b=document.getElementById("banner");
 function ligOk(ok){const e=document.getElementById("lig");e.textContent=ok?"ligado ao servidor":"sem ligação";e.className="lig "+(ok?"lig-ok":"lig-ma");}
 
 /* ============ login ============ */
+async function recuperarSessao(){
+  try{const r=await fetch("/api/dados");
+    if(r.status===200){
+      const d=await r.json();
+      versao=d.versao;utentes=d.utentes;marcacoes=d.marcacoes;horas=d.horas;config=d.config;posto=d.posto||"Posto";
+      document.getElementById("ecra-pin").hidden=true;
+      document.getElementById("util-posto").textContent="posto: "+posto;
+      ligOk(true);semanaBase=segundaDe(new Date());renderTudo();
+      if(!window._timer){window._timer=1;setInterval(sincronizar,5000);}
+      return true;
+    }
+  }catch(e){}
+  return false;
+}
 async function initPin(){
   try{const r=await api("/api/estado");
     document.getElementById("pin-estado").textContent=r.d.pinDefinido
       ?"Introduza o PIN e o nome deste posto."
-      :"Primeiro acesso: defina um PIN (mín. 4 caracteres).";
+      :"Primeiro acesso: indique o código de arranque impresso no terminal do servidor e defina um PIN (mín. 4 caracteres).";
+    document.getElementById("pin-codigo").hidden=!!r.d.pinDefinido;
   }catch(e){document.getElementById("pin-estado").textContent="Servidor indisponível. Verifique se o servidor está a correr.";}}
 async function entrar(){
   const pin=document.getElementById("pin-input").value;
@@ -202,18 +232,31 @@ async function entrar(){
   if(!p){erro.textContent="Indique o nome do posto.";return;}
   if(!pin){erro.textContent="Introduza o PIN.";return;}
   const est=await api("/api/estado");
-  const r=await api(est.d.pinDefinido?"/api/login":"/api/setup",{pin,posto:p});
+  if(!est.d.pinDefinido){
+    const cod=document.getElementById("pin-codigo").value.trim();
+    if(!cod){erro.textContent="Indique o código de arranque impresso no terminal do servidor.";return;}
+    const r0=await api("/api/setup",{pin,posto:p,codigoArranque:cod});
+    if(r0.s!==200){erro.textContent=r0.d.erro||"Falha.";return;}
+    token=r0.d.token; posto=r0.d.posto||p;
+    document.getElementById("ecra-pin").hidden=true;
+    document.getElementById("util-posto").textContent="posto: "+posto;
+    ligOk(true); await sincronizar(true);
+    if(!window._timer){window._timer=1;setInterval(sincronizar,5000);}
+    return;
+  }
+  const r=await api("/api/login",{pin,posto:p});
   if(r.s!==200){erro.textContent=r.d.erro||"Falha.";return;}
   token=r.d.token; posto=r.d.posto||p;
   document.getElementById("ecra-pin").hidden=true;
   document.getElementById("util-posto").textContent="posto: "+posto;
-  ligOk(true); await sincronizar(true); setInterval(sincronizar,5000);
+  ligOk(true); await sincronizar(true);
+  if(!window._timer){window._timer=1;setInterval(sincronizar,5000);}
 }
 function sair(){api("/api/logout",{});token=null;location.reload();}
 
 /* ============ sincronização ============ */
 async function sincronizar(){
-  if(!token)return;
+  if(!token&&document.cookie.indexOf("sessao=")<0)return;
   try{const r=await api("/api/dados");
     if(r.s===401){sair();return;}
     if(r.s!==200)throw 0;
@@ -224,16 +267,29 @@ async function sincronizar(){
 }
 
 /* ============ mutações com confirmação em conflito ============ */
-async function mutacao(rota,corpo,msg){
+async function mutacao(rota,corpo,msg,metodo){
   const c=Object.assign({baseVersao:versao},corpo);
-  const r=await api(rota,c);
+  const r=await api(rota,c,metodo);
   if(r.s===200){aplicarResposta(r.d);ligOk(true);return{ok:true,d:r.d};}
   if(r.s===409){
     const d=r.d;
     if(d.utentes){versao=d.versao;utentes=d.utentes;marcacoes=d.marcacoes||marcacoes;renderTudo();}
+    if(d.motivo==="registo"&&d.atual){
+      const c2=Object.assign({},c,{rev:d.atual.rev});
+      const r2=await api(rota,c2,metodo);
+      if(r2.s===200){aplicarResposta(r2.d);banner("Gravado sobre a versão mais recente do registo.");return{ok:true,d:r2.d};}
+      banner(r2.d.erro||"Outro posto voltou a alterar o registo — feche e reveja.",true);
+      return{ok:false};
+    }
     if(d.motivo==="versao"||d.erro==="conflito"){
-      const ok=await confirmarConflito(msg,d);
-      if(ok)return mutacao(rota,corpo,null);
+      const pos=posicaoNaLista(corpo,d);
+      const ok=await confirmarConflito(msg?msg+(pos?`<br>${pos}`:""):null);
+      if(ok)return mutacao(rota,corpo,null,metodo);
+      return{ok:false};
+    }
+    if(d.motivo==="duplicado"&&d.existenteId){
+      if(confirm(`Já existe um utente com este nome/contacto: ${d.existente.nome} (${d.existente.contacto}).\nAbrir o registo existente?`))
+        abrirEstadoUtente(d.existenteId);
       return{ok:false};
     }
     if(d.motivo==="slot_ocupado"){
@@ -256,6 +312,21 @@ async function mutacao(rota,corpo,msg){
 function aplicarResposta(d){
   versao=d.versao;utentes=d.utentes;marcacoes=d.marcacoes;config=d.config||config;horas=d.horas||horas;
   renderTudo();banner("Alteração gravada.");
+}
+function posicaoNaLista(corpo,d){
+  /* posição exata do utente na lista fresca devolvida no 409 (estilo flash):
+     mostrar «entre o utente anterior e o seguinte» antes de gravar */
+  if(!corpo.nome||!d||!Array.isArray(d.utentes))return null;
+  const nome=corpo.nome.toLowerCase();
+  const alvo=d.utentes.find(u=>u.nome.toLowerCase()===nome)||{nome:corpo.nome};
+  const ordenados=[...d.utentes,u].sort((a,b)=>a.nome.localeCompare(b.nome,"pt"));
+  const i=ordenados.findIndex(u=>u===alvo||u.nome===corpo.nome&&!u.id);
+  if(i<0)return null;
+  const antes=i>0?ordenados[i-1].nome:null, depois=i<ordenados.length-1?ordenados[i+1].nome:null;
+  if(antes&&depois)return`Na lista, <b>${esc(corpo.nome)}</b> ficará <b>entre ${esc(antes)}</b> e <b>${esc(depois)}</b>.`;
+  if(antes)return`Na lista, <b>${esc(corpo.nome)}</b> ficará <b>a seguir a ${esc(antes)}</b> (último lugar).`;
+  if(depois)return`Na lista, <b>${esc(corpo.nome)}</b> ficará <b>antes de ${esc(depois)}</b> (primeiro lugar).`;
+  return`A lista está vazia — <b>${esc(corpo.nome)}</b> ficará em primeiro lugar.`;
 }
 function confirmarConflito(msg){
   return new Promise(res=>{
@@ -303,7 +374,7 @@ function importarTxt(ev){
 function apagarUtente(id){
   const u=utentes.find(x=>x.id===id);
   if(u&&confirm(`Apagar o utente "${u.nome}" e as suas marcações?`))
-    mutacao("/api/utentes/"+id,{rev:u.rev},null);
+    mutacao("/api/utentes/"+id,{rev:u.rev},null,"DELETE");
 }
 function abrirEstadoUtente(id){
   const u=utentes.find(x=>x.id===id);
@@ -327,7 +398,7 @@ function abrirEstadoUtente(id){
 }
 async function guardarUtente(id,rev){
   const r=await mutacao("/api/utentes/"+id,{rev,nome:val("e-nome"),contacto:val("e-contacto"),vacina:val("e-vacina")},
-    `Os dados de <b>${esc(val("e-nome"))}</b> vão ser atualizados.`);
+    `Os dados de <b>${esc(val("e-nome"))}</b> vão ser atualizados.`,"PUT");
   if(r.ok)fecharModal();
 }
 function val(id){return document.getElementById(id).value;}
@@ -383,13 +454,12 @@ async function guardarMarcacao(id,rev,dataAntiga,horaAntiga){
   const corpo={rev,estado};
   if(nd!==dataAntiga||nh!==horaAntiga){corpo.novaData=nd;corpo.novaHora=nh;corpo.reagendar=true;}
   fecharModal();
-  const u="?";
   await mutacao("/api/marcacoes/"+id,corpo,
-    `A marcação vai passar a <b>${EST[estado]}</b>${nd!==dataAntiga?` em ${nd} às ${nh}`:""}.`);
+    `A marcação vai passar a <b>${EST[estado]}</b>${nd!==dataAntiga?` em ${nd} às ${nh}`:""}.`,"PUT");
 }
 async function apagarMarcacao(id,rev){
   fecharModal();
-  await mutacao("/api/marcacoes/"+id,{rev},null);
+  await mutacao("/api/marcacoes/"+id,{rev},null,"DELETE");
 }
 
 /* ============ calendário ============ */
@@ -401,7 +471,10 @@ function iso(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"
 function isoHoje(){return iso(new Date());}
 function fmtData(isoStr){const[y,m,d]=isoStr.split("-");return`${d}/${m}/${y}`;}
 
-function renderTudo(){renderStats();renderUtentes();renderCal();renderHistorico();}
+function renderTudo(){
+  if(!document.getElementById("modal").hidden)return;
+  renderStats();renderUtentes();renderCal();renderHistorico();
+}
 
 function renderStats(){
   const diasSemana=diasDaSemana();
@@ -482,13 +555,47 @@ async function confirmarMarcarCal(d,h){
     `${esc(u.nome)} vai ficar marcado para ${fmtData(d)} às ${h}.`);
 }
 
+function horaLocal(iso){
+  /* guardar em UTC (agora()), mostrar em hora local pt-PT — sem alterar o formato guardado */
+  try{return new Date(iso).toLocaleString("pt-PT",{dateStyle:"short",timeStyle:"medium"});}catch(e){return iso;}
+}
 function renderHistorico(){
   if(document.getElementById("tab-h").hidden)return;
+  const cfgB=document.getElementById("cfg-backup");
+  if(cfgB&&cfgB.value===""&&config.pastaBackup!==undefined)cfgB.value=config.pastaBackup;
   api("/api/historico").then(r=>{
     if(r.s!==200)return;
     document.getElementById("corpo-historico").innerHTML=
-      r.d.historico.map(h=>`<tr><td>${h.quando.replace("T"," ").slice(0,19)}</td><td>${esc(h.posto)}</td><td>${esc(h.acao)}</td><td>${esc(h.detalhe)}</td></tr>`).join("");
+      r.d.historico.map(h=>`<tr><td>${horaLocal(h.quando)}</td><td>${esc(h.posto)}</td><td>${esc(h.acao)}</td><td>${esc(h.detalhe)}</td></tr>`).join("");
   });
+}
+
+/* ============ exportação de dados / backup ============ */
+async function exportarJSON(){
+  try{const r=await fetch("/api/exportar",{headers:{"Authorization":"Bearer "+token}});
+    if(r.status!==200){banner("Não foi possível exportar.",true);return;}
+    const blob=await r.blob();
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(blob);
+    a.download="dados-exportados-"+isoHoje()+".json";
+    a.click();URL.revokeObjectURL(a.href);
+    banner("Dados exportados em JSON.");
+  }catch(e){banner("Falha na exportação.",true);}
+}
+async function guardarBackupCfg(){
+  const pasta=document.getElementById("cfg-backup").value.trim();
+  const r=await mutacao("/api/config",{pastaBackup:pasta},`A pasta de backup passa a ser <b>${esc(pasta||"a local (backups)")}</b>.`);
+  if(r.ok)document.getElementById("backup-estado").textContent="Configuração guardada.";
+}
+async function testarBackup(){
+  const est=document.getElementById("backup-estado");est.textContent="a testar…";
+  const r=await api("/api/backup/testar",{});
+  est.textContent=r.s===200?"Caminho OK: "+r.d.pasta:(r.d.erro||"Falhou.");
+}
+async function backupAgora(){
+  const r=await api("/api/backup",{});
+  if(r.s===200)banner("Backup criado: "+r.d.ficheiro);
+  else banner(r.d.erro||"Backup falhou.",true);
 }
 
 /* ============ exportação PDF ============ */
@@ -510,15 +617,17 @@ function exportarUtentesPDF(){
   const w=janelaPDF("Utentes");if(!w)return;
   w.document.write("<h2>Lista de utentes</h2><table><tr><th>Nome</th><th>Contacto</th><th>Vacina</th><th>Estado</th><th>Marcação</th></tr>");
   utentes.forEach(u=>{
-    const ativa=marcacoes.find(m=>m.utenteId===u.id&&m.estado==="agendado");
+    const ult=marcacoes.filter(m=>m.utenteId===u.id).sort((a,b)=>(b.data+b.hora).localeCompare(a.data+a.hora))[0];
     w.document.write(`<tr><td>${esc(u.nome)}</td><td>${esc(u.contacto)}</td><td>${VAC[u.vacina]}</td>
-      <td>${ativa?"Agendado":"—"}</td><td>${ativa?ativa.data+" "+ativa.hora:"—"}</td></tr>`);
+      <td>${ult?EST[ult.estado]:"—"}</td><td>${ult?ult.data+" "+ult.hora:"—"}</td></tr>`);
   });
   w.document.write("</table>");fecharPDF(w);
 }
 function exportarCalPDF(modo){
   const w=janelaPDF("Calendário");if(!w)return;
-  const dias=(modo==="dia")?[isoHoje()]:diasDaSemana();
+  const selDia=document.getElementById("pdf-dia");
+  const diaEscolhido=selDia?selDia.value:isoHoje();
+  const dias=(modo==="dia")?[diaEscolhido||isoHoje()]:diasDaSemana();
   let prog=0,feitas=0;
   w.document.write(`<div class="info"><b>Semana de ${fmtData(diasDaSemana()[0])}</b> · Programadas: <b id="p"></b> · Administradas: <b id="f"></b></div>`);
   dias.forEach(d=>{
@@ -547,13 +656,13 @@ function mostrarTab(t){
   if(t==="h")renderHistorico();
 }
 function abrirModal(html){document.getElementById("modal-conteudo").innerHTML=html;document.getElementById("modal").hidden=false;}
-function fecharModal(){document.getElementById("modal").hidden=true;}
+function fecharModal(){document.getElementById("modal").hidden=true;renderTudo();}
 
 /* ============ arranque ============ */
 document.getElementById("ficheiro-txt").addEventListener("change",importarTxt);
 document.getElementById("pesquisa").addEventListener("input",renderUtentes);
 document.getElementById("pin-input").addEventListener("keydown",e=>{if(e.key==="Enter")entrar();});
-initPin();
+(async()=>{await initPin();await recuperarSessao();})();
 </script>
 </body>
 </html>

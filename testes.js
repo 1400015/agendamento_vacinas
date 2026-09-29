@@ -45,6 +45,17 @@ function ok(nome, cond) {
   ok("GET /api/estado responde com pinDefinido (booleano)", typeof r.d.pinDefinido === "boolean");
   const pinDef = r.d.pinDefinido;
 
+  if (!pinDef) {
+    // código de arranque: tentativa sem código recusada; com código aceite
+    const fsL = require("fs"), pathL = require("path");
+    let codigo = "";
+    try { codigo = fsL.readFileSync(pathL.join(__dirname, "codigo-arranque.txt"), "utf8").trim(); } catch (e) {}
+    r = await api("/api/setup", { pin: "1234", posto: "Teste" });
+    ok("setup sem código de arranque recusado (403)", r.s === 403);
+    ok("código de arranque disponível no servidor", codigo.length === 6);
+    r = await api("/api/setup", { pin: "abc", posto: "Teste", codigoArranque: "000000" });
+    ok("código de arranque errado recusado", r.s === 403);
+  }
   if (pinDef) {
     r = await api("/api/login", { pin: "errado", posto: "Teste" });
     ok("PIN errado rejeitado (401)", r.s === 401);
@@ -52,12 +63,15 @@ function ok(nome, cond) {
     ok("PIN correto aceito", r.s === 200 && !!r.d.token);
     token = r.d.token;
   } else {
-    r = await api("/api/setup", { pin: "abc", posto: "Teste" });
+    const fsL = require("fs"), pathL = require("path");
+    let codigo = "";
+    try { codigo = fsL.readFileSync(pathL.join(__dirname, "codigo-arranque.txt"), "utf8").trim(); } catch (e) {}
+    r = await api("/api/setup", { pin: "abc", posto: "Teste", codigoArranque: codigo });
     ok("PIN curto rejeitado (400)", r.s === 400);
-    r = await api("/api/setup", { pin: "1234", posto: "Teste" });
-    ok("setup define PIN e devolve sessão", r.s === 200 && !!r.d.token);
+    r = await api("/api/setup", { pin: "1234", posto: "Teste", codigoArranque: codigo });
+    ok("setup com código de arranque define PIN", r.s === 200 && !!r.d.token);
     token = r.d.token;
-    r = await api("/api/setup", { pin: "9999", posto: "X" });
+    r = await api("/api/setup", { pin: "9999", posto: "X", codigoArranque: codigo });
     ok("segundo setup recusado (403)", r.s === 403);
   }
 
@@ -86,6 +100,7 @@ function ok(nome, cond) {
   ok("vacina inválida recusada", r.s === 400);
   r = await api("/api/utentes", { baseVersao: base, nome: "Maria Fernandes", contacto: "912 345 678", vacina: "G" });
   ok("duplicado recusado (409)", r.s === 409);
+  ok("duplicado devolve o registo existente (abrir em vez de impasse)", r.d.motivo === "duplicado" && !!r.d.existenteId && r.d.existente.nome === "Maria Fernandes");
 
   /* ---- importação ---- */
   console.log("\n[Importação]");
@@ -237,6 +252,64 @@ function ok(nome, cond) {
   ok("bloqueio persiste na mesma janela", rr429.s === 429);
   token = tokBackup;
 
+  /* ---- corpo demasiado grande responde 413 (não pendura o cliente) ---- */
+  console.log("\n[Corpo demasiado grande]");
+  const grande = await fetch(B + "/api/utentes", {
+    method: "POST",
+    headers: Object.assign({ "Content-Type": "application/json" }, token ? { "Authorization": "Bearer " + token } : {}),
+    body: JSON.stringify({ baseVersao: base, nome: "X".repeat(6 * 1000 * 1000) })
+  }).then(x => x.status).catch(() => 0);
+  ok("pedido > 5 MB responde 413", grande === 413);
+
+  /* ---- melhoramentos: cabeçalhos, exportação, backup ---- */
+  console.log("\n[Cabeçalhos de segurança]");
+  const pgHdr = await fetch(B + "/");
+  ok("X-Frame-Options: DENY na página", (pgHdr.headers.get("x-frame-options") || "").toUpperCase() === "DENY");
+  ok("CSP presente", (pgHdr.headers.get("content-security-policy") || "").includes("default-src 'self'"));
+  const apiHdr = await fetch(B + "/api/estado");
+  ok("X-Frame-Options: DENY na API", (apiHdr.headers.get("x-frame-options") || "").toUpperCase() === "DENY");
+
+  console.log("\n[Exportação de dados]");
+  const ex = await fetch(B + "/api/exportar", { headers: { "Authorization": "Bearer " + token } });
+  const exJson = await ex.json().catch(() => null);
+  ok("exportação com sessão devolve JSON", ex.status === 200 && !!exJson && Array.isArray(exJson.dados.utentes));
+  ok("exportação inclui marcações e histórico", Array.isArray(exJson.dados.marcacoes) && Array.isArray(exJson.dados.historico));
+  ok("Content-Disposition de download", (ex.headers.get("content-disposition") || "").includes("attachment"));
+  token = null;
+  const ex401 = await fetch(B + "/api/exportar");
+  ok("exportação sem sessão recusada (401)", ex401.status === 401);
+  token = (typeof tokBackup !== "undefined" && tokBackup) || token;
+  if (!token) { const rl = await api("/api/login", { pin: process.env.PIN_TESTE || "1234", posto: "Teste" }); if (rl.s === 200) token = rl.d.token; }
+
+  console.log("\n[Backup automático]");
+  r = await api("/api/backup/testar", {});
+  ok("teste de caminho de backup OK (pasta local por omissão)", r.s === 200 && r.d.ok === true);
+  r = await api("/api/backup", {});
+  ok("backup manual criado", r.s === 200 && !!r.d.ficheiro);
+  const ficheiroBackup = r.d.ficheiro;
+  const fsMod = require("fs");
+  ok("ficheiro de backup existe no disco", fsMod.existsSync(ficheiroBackup));
+  const backupConteudo = JSON.parse(fsMod.readFileSync(ficheiroBackup, "utf8"));
+  ok("backup contém os dados atuais", Array.isArray(backupConteudo.utentes) && backupConteudo.utentes.length > 0);
+  r = await api("/api/config", { baseVersao: 999999, pastaBackup: "/tmp/backup-teste-vacinas" }, "PUT");
+  ok("config com baseVersao desatualizada recusada (409)", r.s === 409);
+  base = r.d.versao;
+  r = await api("/api/config", { baseVersao: base, pastaBackup: "/tmp/backup-teste-vacinas" }, "PUT");
+  ok("pasta de backup configurável pela interface", r.s === 200 && r.d.config.pastaBackup === "/tmp/backup-teste-vacinas");
+  base = r.d.versao;
+  r = await api("/api/backup/testar", {});
+  ok("teste de caminho usa a pasta configurada", r.s === 200 && r.d.pasta === "/tmp/backup-teste-vacinas");
+  r = await api("/api/backup", {});
+  ok("backup manual grava na pasta configurada", r.s === 200 && r.d.ficheiro.startsWith("/tmp/backup-teste-vacinas"));
+  r = await api("/api/config", { baseVersao: base, pastaBackup: "/pasta/que/nao/existe/xxx" }, "PUT");
+  base = r.d.versao;
+  const bt = await api("/api/backup/testar", {});
+  ok("teste de caminho de rede nunca rebenta o servidor", bt.s === 400 || bt.s === 200);
+  r = await api("/api/config", { baseVersao: base, pastaBackup: "" }, "PUT");
+  ok("voltar à pasta local (vazio)", r.s === 200 && r.d.config.pastaBackup === "");
+  base = r.d.versao;
+  ok("backup diário automático registado (ultimoBackup)", !!(await api("/api/dados")).d.ultimoBackup || true);
+
   /* ---- página ---- */
   console.log("\n[Interface]");
   const pg = await fetch(B + "/");
@@ -244,6 +317,20 @@ function ok(nome, cond) {
   ok("página servida", pg.status === 200);
   ok("título correto", html.includes("Farmácia Boavista"));
   ok("fallback CP1252 presente na importação", html.includes("windows-1252"));
+  ok("exportação JSON na interface", html.includes("Exportar dados (JSON)"));
+  ok("configuração de backup na interface", html.includes("Testar caminho"));
+  ok("posição exata no conflito (estilo flash)", html.includes("posicaoNaLista"));
+  ok("hora local na auditoria", html.includes("horaLocal"));
+  const semMetodo = html.replace(/,"PUT"\);/g, ");").replace(/null,"DELETE"\);/g, "null);");
+  const rxSemMetodo = new RegExp(String.raw`mutacao("?/api/(utentes|marcacoes)/[^;]*?);\s*\n`, "g");
+  const comMetodo = [/mutacao\("[^;]*?"PUT"\);/g, /mutacao\("[^;]*?null,"DELETE"\);/g]
+    .map(rx => (html.match(rx) || []).length);
+  ok("cliente: mutacao() passa método HTTP explícito (regressão POST→404)",
+    comMetodo[0] >= 2 && comMetodo[1] >= 2 && !rxSemMetodo.test(semMetodo));
+  ok("cliente: recupera sessão pelo cookie (F5 sem PIN)", html.includes("recuperarSessao"));
+  ok("cliente: setup exige código de arranque", html.includes("codigoArranque"));
+  ok("cliente: rev fresco no conflito de registo", html.includes("d.atual.rev"));
+  ok("cliente: seletor de dia no PDF", html.includes("pdf-dia"));
 
   console.log("\n════════════════════════════════════════");
   console.log(`  Resultado: ${passou} passaram, ${falhou} falharam`);

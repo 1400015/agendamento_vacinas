@@ -1,5 +1,5 @@
 dados.json
 config-pin.json
-config.json
-node_modules/
-*.log
+codigo-arranque.txt
+backups/
+dados.json.corrompida-*

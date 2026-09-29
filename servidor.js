@@ -44,12 +44,17 @@ function carregarConfig() {
     horaInicio: cfg.horaInicio || "09:00",
     horaFim: cfg.horaFim || "18:30",
     intervaloMin: [15, 30, 60].includes(Number(cfg.intervaloMin)) ? Number(cfg.intervaloMin) : 30,
-    mostrarSabado: cfg.mostrarSabado !== undefined ? !!cfg.mostrarSabado : true
+    mostrarSabado: cfg.mostrarSabado !== undefined ? !!cfg.mostrarSabado : true,
+    pastaBackup: typeof cfg.pastaBackup === "string" ? cfg.pastaBackup.trim() : ""
   };
-  fs.writeFileSync(FICHEIRO_CONFIG, JSON.stringify(def, null, 2));
+  let atual = "";
+  try { atual = fs.readFileSync(FICHEIRO_CONFIG, "utf8"); } catch (e) {}
+  const novo = JSON.stringify(def, null, 2);
+  if (novo !== atual) fs.writeFileSync(FICHEIRO_CONFIG, novo);
   return def;
 }
 const CFG = carregarConfig();
+function gravarConfig() { fs.writeFileSync(FICHEIRO_CONFIG, JSON.stringify(CFG, null, 2)); }
 
 function gerarHoras() {
   const [h1, m1] = CFG.horaInicio.split(":").map(Number);
@@ -95,6 +100,43 @@ function persistir() {
 }
 function bumpVersao() { dados.versao += 1; }
 function agora() { return new Date().toISOString(); }
+
+/* ------- backup automático rotativo -------
+   Cópia diária de dados.json para OUTRO posto da rede interna (partilha
+   Windows \\posto\pasta ou montagem Linux), configurável pela interface.
+   Vazio = pasta local «backups» junto ao servidor. Mantém as 7 cópias
+   mais recentes (dados.backup-AAAA-MM-DD.json). Uma falha de backup NUNCA
+   bloqueia a gravação — regista-se no histórico e segue.                */
+const RE_BACKUP = /^dados\.backup-\d{4}-\d{2}-\d{2}\.json$/;
+const BACKUP_COPIAS = 7;
+function pastaBackupEfetiva() {
+  const p = String(CFG.pastaBackup || "").trim();
+  return p ? p : path.join(RAIZ, "backups");
+}
+function dataLocalArquivo() {
+  const d = new Date();
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+function backupAuto(forcar) {
+  const hoje = dataLocalArquivo();
+  if (!forcar && dados.ultimoBackup === hoje) return { ok: true, hoje: true, ficheiro: null };
+  const pasta = pastaBackupEfetiva();
+  const ficheiro = path.join(pasta, "dados.backup-" + hoje + ".json");
+  try {
+    fs.mkdirSync(pasta, { recursive: true });
+    fs.copyFileSync(FICHEIRO_DADOS, ficheiro);
+    const todos = fs.readdirSync(pasta).filter(f => RE_BACKUP.test(f)).sort();
+    while (todos.length > BACKUP_COPIAS) fs.unlinkSync(path.join(pasta, todos.shift()));
+    dados.ultimoBackup = hoje;
+    persistir();
+    registar("servidor", "backup", ficheiro, forcar ? "cópia manual" : "cópia diária automática");
+    return { ok: true, hoje: false, ficheiro };
+  } catch (e) {
+    console.error("BACKUP FALHOU (" + pasta + "):", e.message);
+    registar("servidor", "backup", pasta, "FALHOU: " + e.message);
+    return { ok: false, erro: e.message };
+  }
+}
 function registar(posto, acao, alvo, detalhe) {
   dados.historico.push({ quando: agora(), posto: posto || "?", acao, alvo, detalhe: String(detalhe || "").slice(0, 500) });
   if (dados.historico.length > 5000) dados.historico.splice(0, dados.historico.length - 5000);
@@ -151,6 +193,22 @@ async function derivarChave(pin, sal) {
     base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
 }
 function pinDefinido() { return fs.existsSync(FICHEIRO_PIN); }
+/* código de arranque: enquanto o PIN não estiver definido, o primeiro acesso
+   exige o código impresso NO TERMINAL do servidor — quem está na consola
+   (responsável) controla quem define o PIN; um visitador no WIFI não o conhece */
+let codigoArranque = null;
+const FICHEIRO_CODIGO = path.join(RAIZ, "codigo-arranque.txt");
+function gerarCodigoArranque() {
+  codigoArranque = String(crypto.randomInt(0, 1000000)).padStart(6, "0");
+  /* também em ficheiro local: quem está NESTA máquina já tem acesso ao
+     terminal; o ficheiro é apagado logo que o PIN fica definido */
+  try { fs.writeFileSync(FICHEIRO_CODIGO, codigoArranque + "\n"); } catch (e) {}
+  return codigoArranque;
+}
+function apagarCodigoArranque() {
+  codigoArranque = null;
+  try { fs.unlinkSync(FICHEIRO_CODIGO); } catch (e) {}
+}
 
 /* ------- rate-limit do login (janela deslizante por IP) -------
    Rede interna, mas impede força-bruta ao PIN mesmo em LAN:       
@@ -206,6 +264,10 @@ function tokenDe(req) {
   const c = (req.headers.cookie || "").match(/sessao=([a-f0-9]+)/);
   return c ? c[1] : null;
 }
+setInterval(() => {
+  const agoraT = Date.now();
+  for (const [t, s] of sessoes) if (agoraT > s.expira) sessoes.delete(t);
+}, 10 * 60 * 1000).unref();
 function sessaoDe(req) {
   const t = tokenDe(req);
   if (!t) return null;
@@ -216,19 +278,16 @@ function sessaoDe(req) {
 }
 
 /* ------------------------------------------------------------ HTTP base -- */
-function lerCorpo(req) {
-  return new Promise((resolve, reject) => {
-    let tam = 0; const partes = [];
-    req.on("data", c => { tam += c.length; if (tam > 5e6) { req.destroy(); reject(new Error("grande demais")); } partes.push(c); });
-    req.on("end", () => { try { resolve(JSON.parse(Buffer.concat(partes).toString("utf8") || "{}")); } catch (e) { reject(e); } });
-    req.on("error", reject);
-  });
-}
 const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".txt": "text/plain; charset=utf-8", ".png": "image/png" };
+const CAB_SEGURANCA = {
+  "X-Frame-Options": "DENY",
+  "X-Content-Type-Options": "nosniff",
+  "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'"
+};
 function servirFicheiro(res, f) {
   fs.readFile(f, (err, buf) => {
-    if (err) { res.writeHead(404); res.end("Não encontrado"); return; }
-    res.writeHead(200, { "Content-Type": MIME[path.extname(f)] || "application/octet-stream", "Cache-Control": "no-store" });
+    if (err) { res.writeHead(404, CAB_SEGURANCA); res.end("Não encontrado"); return; }
+    res.writeHead(200, Object.assign({ "Content-Type": MIME[path.extname(f)] || "application/octet-stream", "Cache-Control": "no-store" }, CAB_SEGURANCA));
     res.end(buf);
   });
 }
@@ -238,7 +297,7 @@ async function api(req, res, corpo) {
   const rota = req.url.split("?")[0];
   const partes = rota.replace(/^\/+/, "").split("/");   // ex.: ["api","utentes","abc"]
   const resp = (cod, obj, cookie) => {
-    const cab = { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" };
+    const cab = Object.assign({ "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }, CAB_SEGURANCA);
     if (cookie) cab["Set-Cookie"] = cookie;
     res.writeHead(cod, cab); res.end(JSON.stringify(obj));
   };
@@ -253,9 +312,13 @@ async function api(req, res, corpo) {
     if (pinDefinido()) return resp(403, { erro: "PIN já definido. Para redefinir, pare o servidor e apague config-pin.json." });
     const rl = rateLimitPermitir(req);
     if (!rl.ok) return resp(429, { erro: `Demasiadas tentativas. Aguarde ${rl.espera} s.` });
+    const codigo = String(corpo.codigoArranque || "").trim();
+    if (codigo !== codigoArranque)
+      return resp(403, { erro: "Código de arranque incorreto. Está impresso no terminal do servidor." });
     const pin = String(corpo.pin || "");
     if (pin.length < 4) return resp(400, { erro: "O PIN deve ter pelo menos 4 caracteres." });
     await definirPin(pin);
+    apagarCodigoArranque();
     rateLimitLimpar(req);
     const posto = String(corpo.posto || "").trim() || "Posto";
     const t = novaSessao(posto);
@@ -293,6 +356,37 @@ async function api(req, res, corpo) {
   if (rota === "/api/horas" && req.method === "GET")
     return resp(200, { horas: HORAS, config: CFG });
 
+  /* ---------- exportação de dados (cópia de segurança pela interface) ---------- */
+  if (rota === "/api/exportar" && req.method === "GET") {
+    const nome = "dados-exportados-" + dataLocalArquivo() + ".json";
+    const carga = JSON.stringify({ exportadoEm: agora(), por: posto, dados }, null, 1);
+    res.writeHead(200, Object.assign({
+      "Content-Type": "application/json; charset=utf-8",
+      "Content-Disposition": 'attachment; filename="' + nome + '"'
+    }, CAB_SEGURANCA));
+    return res.end(carga);
+  }
+
+  if (rota === "/api/backup/testar" && req.method === "POST") {
+    const pasta = pastaBackupEfetiva();
+    const ficheiro = path.join(pasta, ".teste-backup-" + Date.now());
+    try {
+      fs.mkdirSync(pasta, { recursive: true });
+      fs.writeFileSync(ficheiro, "teste");
+      fs.readFileSync(ficheiro, "utf8");
+      fs.unlinkSync(ficheiro);
+      return resp(200, { ok: true, pasta, maxCopias: BACKUP_COPIAS, ultimoBackup: dados.ultimoBackup || null });
+    } catch (e) {
+      return resp(400, { ok: false, pasta, erro: "Não foi possível escrever em " + pasta + " — " + e.message });
+    }
+  }
+
+  if (rota === "/api/backup" && req.method === "POST") {
+    const resultado = backupAuto(true);
+    if (!resultado.ok) return resp(500, { erro: "Backup falhou: " + resultado.erro, pasta: pastaBackupEfetiva() });
+    return resp(200, { ok: true, ficheiro: resultado.ficheiro, pasta: pastaBackupEfetiva(), ultimoBackup: dados.ultimoBackup });
+  }
+
   /* ---------- helpers de mutação ---------- */
   const baseVersaoOk = () => {
     if (!Number.isInteger(corpo.baseVersao)) { resp(400, { erro: "baseVersao em falta." }); return false; }
@@ -303,9 +397,29 @@ async function api(req, res, corpo) {
     }
     return true;
   };
-  const gravar = (extra) => { bumpVersao(); persistir(); resp(200, Object.assign({ versao: dados.versao, utentes: dados.utentes, marcacoes: dados.marcacoes, config: CFG, horas: HORAS }, extra || {})); };
+  const gravar = (extra) => {
+    bumpVersao();
+    persistir();
+    backupAuto(false);   // cópia diária; falha nunca bloqueia a gravação
+    resp(200, Object.assign({ versao: dados.versao, utentes: dados.utentes, marcacoes: dados.marcacoes, config: CFG, horas: HORAS }, extra || {}));
+  };
   const ocupantes = (data, hora, excetoId) => dados.marcacoes.filter(m =>
     m.data === data && m.hora === hora && OCUPAM.includes(m.estado) && m.id !== excetoId);
+
+  /* ---------- configuração (pasta de backup na rede interna) ---------- */
+  if (rota === "/api/config" && req.method === "PUT") {
+    if (!Number.isInteger(corpo.baseVersao)) return resp(400, { erro: "baseVersao em falta." });
+    if (corpo.baseVersao !== dados.versao) {
+      return resp(409, { erro: "conflito", motivo: "versao", versao: dados.versao, config: CFG,
+        utentes: dados.utentes, marcacoes: dados.marcacoes });
+    }
+    const p = String(corpo.pastaBackup || "").trim();
+    if (corpo.pastaBackup !== undefined) CFG.pastaBackup = p;
+    gravarConfig();
+    registar(posto, "config", "pastaBackup", p || "(local: pasta backups)");
+    return gravar({ config: CFG });
+  }
+
 
   /* ---------- utentes ---------- */
   if (rota === "/api/utentes" && req.method === "POST") {
@@ -316,8 +430,9 @@ async function api(req, res, corpo) {
     if (!nome || !contacto) return resp(400, { erro: "Nome e contacto obrigatórios." });
     if (!vacina) return resp(400, { erro: "Vacina inválida (G, C ou G+C)." });
     const k = chaveUtente(nome, contacto);
-    if (dados.utentes.some(u => chaveUtente(u.nome, u.contacto)[0] === k[0] && chaveUtente(u.nome, u.contacto)[1] === k[1]))
-      return resp(409, { erro: "Já existe um utente com este nome/contacto." });
+    const dup = dados.utentes.find(u => chaveUtente(u.nome, u.contacto)[0] === k[0] && chaveUtente(u.nome, u.contacto)[1] === k[1]);
+    if (dup)
+      return resp(409, { erro: "Já existe um utente com este nome/contacto.", motivo: "duplicado", existenteId: dup.id, existente: dup });
     const u = { id: crypto.randomUUID(), nome, contacto, vacina, obs: String(corpo.obs || "").trim(), rev: 1, criadoEm: agora(), criadoPor: posto };
     dados.utentes.push(u);
     registar(posto, "criar utente", u.id, `${nome} | ${contacto} | ${vacina}`);
@@ -475,10 +590,20 @@ function utenteDe(id) { const u = dados.utentes.find(x => x.id === id); return u
 
 /* ------------------------------------------------------------ servidor --- */
 carregarDados();
+if (!pinDefinido()) {
+  console.log("█▌ PRIMEIRO ARRANQUE: o PIN ainda não está definido.");
+  console.log("█▌ Código de arranque (indique-o na página para definir o PIN):  " + gerarCodigoArranque());
+  console.log("█▌ Ele é válido apenas enquanto o servidor não for reiniciado.");
+  console.log("█▌ Quem tem este código controla a definição do PIN — não o partilhe.");
+}
 const servidor = http.createServer((req, res) => {
   if (req.url.startsWith("/api/")) {
     let bruto = "";
-    req.on("data", c => { bruto += c; if (bruto.length > 5e6) req.destroy(); });
+    req.on("data", c => { bruto += c; if (bruto.length > 5e6) {
+      res.writeHead(413, Object.assign({ "Content-Type": "application/json; charset=utf-8" }, CAB_SEGURANCA));
+      res.end('{"erro":"Pedido demasiado grande (máx. 5 MB)."}');
+      req.destroy();
+    } });
     req.on("end", () => {
       let corpo = {};
       try { corpo = JSON.parse(bruto || "{}"); } catch (e) {}
