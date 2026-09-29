@@ -75,7 +75,16 @@ function carregarDados() {
     if (!Number.isInteger(j.versao)) j.versao = 1;
     dados = j;
   } catch (e) {
-    if (e.code !== "ENOENT") console.error("AVISO: dados.json ilegível, a começar do zero.");
+    if (e.code === "ENOENT") return;                 // primeira vez: normal
+    // ficheiro ilegível: NÃO sobrescrever — parar e pedir intervenção
+    console.error("╔══ ERRO CRÍTICO ════════════════════════════════════════╗");
+    console.error("║ dados.json existe mas está ilegível/corrompido.          ║");
+    console.error("║ O servidor NÃO vai arrancar para não destruir dados.   ║");
+    console.error("║ 1) Faça uma cópia do ficheiro dados.json               ║");
+    console.error("║ 2) Corrija-o ou remova-o manualmente                    ║");
+    console.error("║ 3) Volte a arrancar o servidor                          ║");
+    console.error("╚═════════════════════════════════════════════════════════╝");
+    process.exit(1);
   }
 }
 function persistir() {
@@ -94,8 +103,11 @@ function registar(posto, acao, alvo, detalhe) {
 const RE_DATA = /^\d{4}-\d{2}-\d{2}$/;
 function validarData(v) {
   if (typeof v !== "string" || !RE_DATA.test(v)) return null;
-  const d = new Date(v + "T00:00:00");
-  if (isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== v) return null;
+  // comparação por partes, imune a fusos horários (DST):
+  // construir em hora local e comparar via getUTC* da própria data construída
+  const [y, m, d] = v.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) return null;
   return v;
 }
 function validarHora(v) { return HORAS.includes(v) ? v : null; }
@@ -370,7 +382,10 @@ async function api(req, res, corpo) {
     const reagendar = !!corpo.reagendar;
 
     if (reagendar && nd && nh) {
-      // marcação nova nasce 'agendada'; a antiga liberta a hora
+      // marcação nova nasce 'agendada'; a antiga liberta SEMPRE a hora original:
+      // se o estado escolhido voltar a ser ocupante ('agendado'/'administrado'),
+      // força-se 'faltou' — nunca pode ficar um fantasma a bloquear a hora antiga
+      const estadoAntiga = OCUPAM.includes(estado) ? "faltou" : estado;
       const ocup = ocupantes(nd, nh, m.id);
       if (ocup.length >= CFG.maxPorHora || (ocup.length > 0 && !corpo.justificada))
         return resp(409, { erro: "Nova hora ocupada noutro posto.", motivo: "slot_ocupado", ocupantes: ocup.map(o => ({ id: o.id, nome: utenteDe(o.utenteId) })) });
@@ -378,10 +393,10 @@ async function api(req, res, corpo) {
         estado: "agendado", justificada: !!corpo.justificada, motivo: String(corpo.motivo || "").trim(),
         rev: 1, criadoEm: agora(), criadoPor: posto, historico: [{ quando: agora(), acc: `reagendada de ${m.data} ${m.hora}`, posto }] };
       dados.marcacoes.push(nova);
-      m.estado = estado || "faltou";
+      m.estado = estadoAntiga;
       m.rev += 1; m.atualizadoEm = agora();
-      m.historico.push({ quando: agora(), acc: `reagendada para ${nd} ${nh} (nova ${nova.id.slice(0, 8)})`, posto });
-      registar(posto, "reagendar", m.id, `${m.data} ${m.hora} -> ${nd} ${nh}`);
+      m.historico.push({ quando: agora(), acc: `reagendada para ${nd} ${nh} (nova ${nova.id.slice(0, 8)}); antiga → ${estadoAntiga}`, posto });
+      registar(posto, "reagendar", m.id, `${m.data} ${m.hora} -> ${nd} ${nh} (antiga: ${estadoAntiga})`);
       return gravar({ novaId: nova.id });
     }
 

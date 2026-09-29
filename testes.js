@@ -24,6 +24,21 @@ function ok(nome, cond) {
 (async () => {
   console.log("Central de Marcações de Vacinas — bateria de testes\n");
 
+  /* ---- pré-condições (idempotência) ---- */
+  try {
+    const probe = await fetch(B + "/api/estado");
+    const est = await probe.json().catch(() => ({}));
+    if (est.pinDefinido) {
+      console.log("AVISO: o servidor já tem PIN/dados (testes anteriores?).");
+      console.log("Para resultados limpos: pare o servidor, apague dados.json,");
+      console.log("config-pin.json e config.json, e arranque de novo.\n");
+    }
+  } catch (e) {
+    console.error("Servidor não responde em " + B + " — arranque-o primeiro:");
+    console.error("  node servidor.js 18090");
+    process.exit(1);
+  }
+
   /* ---- estado e PIN ---- */
   console.log("[PIN e sessões]");
   let r = await api("/api/estado");
@@ -135,13 +150,14 @@ function ok(nome, cond) {
   /* ---- reagendamento ---- */
   console.log("\n[Reagendamento]");
   const joaoMarc = (await api("/api/dados")).d.marcacoes.find(m => m.utenteId === joao.id && m.estado === "agendado");
-  r = await api("/api/marcacoes/" + joaoMarc.id, { baseVersao: base, rev: joaoMarc.rev, estado: "cancelado", reagendar: true, novaData: "2099-09-23", novaHora: "11:30" }, "PUT");
+  r = await api("/api/marcacoes/" + joaoMarc.id, { baseVersao: base, rev: joaoMarc.rev, estado: "agendado", reagendar: true, novaData: "2099-09-23", novaHora: "11:30" }, "PUT");
   ok("reagendar cria marcação nova", r.s === 200 && !!r.d.novaId);
   base = r.d.versao;
   const dadosDepois = (await api("/api/dados")).d;
   const nova = dadosDepois.marcacoes.find(m => m.id === r.d.novaId);
   ok("marcação nova 'agendada' no novo slot", nova && nova.estado === "agendado" && nova.data === "2099-09-23" && nova.hora === "11:30");
   ok("marcação antiga libertou a hora original (cancelado)", !dadosDepois.marcacoes.some(m => m.utenteId === joao.id && m.data === D && m.hora === H && ["agendado", "administrado"].includes(m.estado)));
+  ok("reagendar com estado 'agendado' não deixa fantasma (antiga → faltou)", !dadosDepois.marcacoes.some(m => m.utenteId === joao.id && m.data === D && m.hora === H && m.estado === "agendado"));
 
   /* ---- concorrência ---- */
   console.log("\n[Concorrência]");
