@@ -195,10 +195,11 @@ programadas vs. administradas e as justificações.
 
 ```bash
 node servidor.js 18090     # numa janela
-node testes.js             # noutra: 50 verificações
+node testes.js             # noutra: 53 verificações
 ```
 
-Cobrem: PIN/sessões, validações, duplicados na importação, sobreposições e
+Cobrem: PIN/sessões (incl. rate-limit), validações, duplicados na importação,
+ssobreposições e
 justificações, `maxPorHora`, estados a libertar horário, reagendamento,
 conflitos de versão e de registo, dois postos em simultâneo, eliminações,
 auditoria e serviço da página.

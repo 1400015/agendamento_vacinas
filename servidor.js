@@ -151,6 +151,32 @@ async function derivarChave(pin, sal) {
     base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
 }
 function pinDefinido() { return fs.existsSync(FICHEIRO_PIN); }
+
+/* ------- rate-limit do login (janela deslizante por IP) -------
+   Rede interna, mas impede força-bruta ao PIN mesmo em LAN:       
+   6 tentativas por janela de 5 minutos por IP.                     */
+const RL_JANELA_MS = 5 * 60 * 1000;
+const RL_MAX = 6;
+const rlTentativas = new Map();   // ip -> [timestamps]
+function ipDe(req) { return req.socket.remoteAddress || "?"; }
+function rateLimitPermitir(req) {
+  const ip = ipDe(req);
+  const agoraT = Date.now();
+  const lista = (rlTentativas.get(ip) || []).filter(t => agoraT - t < RL_JANELA_MS);
+  if (lista.length >= RL_MAX) {
+    const espera = Math.ceil((RL_JANELA_MS - (agoraT - lista[0])) / 1000);
+    rlTentativas.set(ip, lista);
+    return { ok: false, espera };
+  }
+  lista.push(agoraT);
+  rlTentativas.set(ip, lista);
+  return { ok: true };
+}
+function rateLimitLimpar(req) {
+  const ip = ipDe(req);
+  rlTentativas.delete(ip);   // login bem-sucedido reinicia a contagem
+}
+
 async function definirPin(pin) {
   const sal = crypto.getRandomValues(new Uint8Array(16));
   const iv = crypto.getRandomValues(new Uint8Array(12));
@@ -225,9 +251,12 @@ async function api(req, res, corpo) {
 
   if (rota === "/api/setup" && req.method === "POST") {
     if (pinDefinido()) return resp(403, { erro: "PIN já definido. Para redefinir, pare o servidor e apague config-pin.json." });
+    const rl = rateLimitPermitir(req);
+    if (!rl.ok) return resp(429, { erro: `Demasiadas tentativas. Aguarde ${rl.espera} s.` });
     const pin = String(corpo.pin || "");
     if (pin.length < 4) return resp(400, { erro: "O PIN deve ter pelo menos 4 caracteres." });
     await definirPin(pin);
+    rateLimitLimpar(req);
     const posto = String(corpo.posto || "").trim() || "Posto";
     const t = novaSessao(posto);
     return resp(200, { ok: true, token: t, posto },
@@ -235,10 +264,13 @@ async function api(req, res, corpo) {
   }
 
   if (rota === "/api/login" && req.method === "POST") {
+    const rl = rateLimitPermitir(req);
+    if (!rl.ok) return resp(429, { erro: `Demasiadas tentativas deste posto. Aguarde ${rl.espera} s e tente de novo.` });
     if (!pinDefinido()) return resp(400, { erro: "PIN ainda não definido." });
     const posto = String(corpo.posto || "").trim();
     if (!posto) return resp(400, { erro: "Indique o nome do posto (ex.: Posto 1)." });
     if (!(await verificarPin(String(corpo.pin || "")))) return resp(401, { erro: "PIN incorreto." });
+    rateLimitLimpar(req);
     const t = novaSessao(posto);
     return resp(200, { ok: true, token: t, posto }, `sessao=${t}; Path=/; HttpOnly; SameSite=Strict; Max-Age=28800`);
   }

@@ -283,7 +283,14 @@ function importarTxt(ev){
   const f=ev.target.files[0];if(!f)return;
   const l=new FileReader();
   l.onload=async()=>{
-    const linhas=l.result.split(/\r?\n/).filter(x=>x.trim()).map(ln=>{
+    // deteção de codificação: se o UTF-8 produziu caracteres de substituição,
+    // o ficheiro deve estar em ANSI/Windows-1252 (Notepad antigo, Excel) — reler
+    let texto=l.result;
+    if(/\uFFFD/.test(texto)){
+      const l2=new FileReader();
+      texto=await new Promise(res=>{l2.onload=()=>res(l2.result);l2.readAsText(f,"windows-1252");});
+    }
+    const linhas=texto.split(/\r?\n/).filter(x=>x.trim()).map(ln=>{
       const p=ln.split(";");return{nome:p[0],contacto:p[1],vacina:p[2]};
     });
     if(!linhas.length){alert("Nenhuma linha válida.");ev.target.value="";return;}

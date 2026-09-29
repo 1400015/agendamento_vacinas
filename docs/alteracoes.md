@@ -58,3 +58,21 @@ copiar à mão a tempo).
   `agendamento_glm5.3flash`.
 - Sem rate-limit no `/api/login` (aceitável em rede interna).
 - Sem licença no repositório.
+
+## 2026-09-29 — Pontos menores (segunda ronda)
+
+Resolução dos três itens registados como «não alterado» na ronda anterior:
+
+- **Fallback ANSI/CP1252 na importação `.txt`** (cliente): se a leitura UTF-8
+  produzir caracteres de substituição (U+FFFD), o ficheiro é relido como
+  `windows-1252` — ficheiros criados no Notepad antigo/Excel do Windows com
+  nomes acentuados deixam de chegar trocados. (Portado do
+  `agendamento_glm5.3flash`, como sugerido.)
+- **Rate-limit no login/setup** (servidor): janela deslizante por IP — 6
+  tentativas por 5 minutos; a 7.ª recebe `429` com tempo de espera. O login
+  bem-sucedido limpa a contagem. Impede força-bruta ao PIN mesmo em LAN.
+- **Licença MIT** adicionada (`LICENSE`).
+
+Testes: 50 → **53 verificações** (bloqueio após excesso de tentativas,
+persistência do bloqueio na mesma janela, presença do fallback CP1252 na
+página). Bateria: **53/53** no fuso Europe/Lisbon.

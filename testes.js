@@ -224,12 +224,26 @@ function ok(nome, cond) {
   ok("histórico regista o posto", r.d.historico.some(h => h.posto === "Teste"));
   ok("histórico regista ações", ["criar utente", "agendar", "reagendar"].every(a => r.d.historico.some(h => h.acao === a)));
 
+  /* ---- rate-limit do login (2026-09-29) ---- */
+  console.log("\n[Rate-limit do login]");
+  const tokBackup = token; token = null;
+  let bloqueou = false;
+  for (let i = 0; i < 8; i++) {
+    const rr = await api("/api/login", { pin: "errada" + i, posto: "BF" });
+    if (rr.s === 429) { bloqueou = true; break; }
+  }
+  ok("excesso de PINs errados é bloqueado (429)", bloqueou);
+  const rr429 = await api("/api/login", { pin: "errada-final", posto: "BF" });
+  ok("bloqueio persiste na mesma janela", rr429.s === 429);
+  token = tokBackup;
+
   /* ---- página ---- */
   console.log("\n[Interface]");
   const pg = await fetch(B + "/");
   const html = await pg.text();
   ok("página servida", pg.status === 200);
   ok("título correto", html.includes("Farmácia Boavista"));
+  ok("fallback CP1252 presente na importação", html.includes("windows-1252"));
 
   console.log("\n════════════════════════════════════════");
   console.log(`  Resultado: ${passou} passaram, ${falhou} falharam`);
