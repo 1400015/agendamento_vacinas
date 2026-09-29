@@ -401,7 +401,7 @@ function renderStats(){
   let prog=0,feitas=0,faltas=0,canc=0;
   marcacoes.forEach(m=>{
     if(!diasSemana.includes(m.data))return;
-    if(m.estado==="cancelado"){canc++;return;}
+    if(m.estado==="cancelado"){if(!m.supersedidaPor)canc++;return;}/* supersedida por reagendamento não é "cancelada" */
     const doses=m.vacinas.length;
     if(m.estado==="administrado"){prog+=doses;feitas+=doses;}
     else if(m.estado==="faltou"){prog+=doses;faltas+=doses;}

@@ -157,7 +157,30 @@ function ok(nome, cond) {
   const nova = dadosDepois.marcacoes.find(m => m.id === r.d.novaId);
   ok("marcação nova 'agendada' no novo slot", nova && nova.estado === "agendado" && nova.data === "2099-09-23" && nova.hora === "11:30");
   ok("marcação antiga libertou a hora original (cancelado)", !dadosDepois.marcacoes.some(m => m.utenteId === joao.id && m.data === D && m.hora === H && ["agendado", "administrado"].includes(m.estado)));
-  ok("reagendar com estado 'agendado' não deixa fantasma (antiga → faltou)", !dadosDepois.marcacoes.some(m => m.utenteId === joao.id && m.data === D && m.hora === H && m.estado === "agendado"));
+  ok("reagendar com estado 'agendado' não deixa fantasma (antiga cancelada e supersedida)", !dadosDepois.marcacoes.some(m => m.utenteId === joao.id && m.data === D && m.hora === H && m.estado === "agendado") && dadosDepois.marcacoes.find(m => m.id === joaoMarc.id).estado === "cancelado" && !!dadosDepois.marcacoes.find(m => m.id === joaoMarc.id).supersedidaPor);
+
+  /* ---- datas e reagendamento por defeito (regressões 2026-09-29) ---- */
+  console.log("\n[Datas e reagendamento por defeito]");
+  r = await api("/api/marcacoes", { baseVersao: base, utenteId: maria.id, data: "2030-07-15", hora: "09:00", vacinas: ["G"] });
+  ok("data em período de horário de verão aceite (regressão fuso horário)", r.s === 200);
+  base = r.d.versao;
+  r = await api("/api/marcacoes", { baseVersao: base, utenteId: maria.id, data: "2030-02-30", hora: "09:00", vacinas: ["G"] });
+  ok("data inexistente (30 de fevereiro) recusada", r.s === 400);
+
+  r = await api("/api/utentes", { baseVersao: base, nome: "Rui Fantasma", contacto: "950 000 001", vacina: "C" });
+  base = r.d.versao;
+  const rui = r.d.utentes[r.d.utentes.length - 1];
+  r = await api("/api/marcacoes", { baseVersao: base, utenteId: rui.id, data: "2030-07-16", hora: "09:00", vacinas: ["C"] });
+  base = r.d.versao;
+  const marcRui = r.d.marcacoes[r.d.marcacoes.length - 1];
+  // exatamente o que a interface faz ao reagendar: muda só dia/hora, estado fica "agendado"
+  r = await api("/api/marcacoes/" + marcRui.id, { baseVersao: base, rev: marcRui.rev, estado: "agendado", reagendar: true, novaData: "2030-07-16", novaHora: "09:30" }, "PUT");
+  ok("reagendar com estado por defeito ('agendado') aceite", r.s === 200);
+  base = r.d.versao;
+  const dFantasma = (await api("/api/dados")).d;
+  const antigaRui = dFantasma.marcacoes.find(m => m.id === marcRui.id);
+  ok("hora antiga libertada: antiga cancelada e ligada à nova", antigaRui.estado === "cancelado" && !!antigaRui.supersedidaPor);
+  ok("sem marcação ativa fantasma na hora antiga", !dFantasma.marcacoes.some(m => m.utenteId === rui.id && ["agendado", "administrado"].includes(m.estado) && m.data === "2030-07-16" && m.hora === "09:00"));
 
   /* ---- concorrência ---- */
   console.log("\n[Concorrência]");
