@@ -132,7 +132,7 @@ esse posto na auditoria.
 | Sobreposição | Recusada sem **justificação escrita** (motivo obrigatório) |
 | Limite por hora | `maxPorHora` (por omissão 2) — mesmo justificado, não excede |
 | Duplicado do utente | O mesmo utente não tem 2 marcações ativas na mesma hora |
-| Reagendamento | Marcação nova nasce `agendada`; a antiga passa ao estado escolhido e liberta a hora |
+| Reagendamento | Marcação nova nasce `agendada`; a antiga passa ao estado escolhido e liberta a hora. Se ficar num estado que ocupe (`agendado`/`administrado`), a antiga é cancelada automaticamente e fica ligada à nova (`supersedidaPor`), sem contar nas «Canceladas» ou «Faltas» |
 | Horário | Validado no servidor (ex.: recusa 07:00 fora do horário) |
 
 ## 7. Controlo de concorrência
@@ -195,7 +195,7 @@ programadas vs. administradas e as justificações.
 
 ```bash
 node servidor.js 18090     # numa janela
-node testes.js             # noutra: 44 verificações
+node testes.js             # noutra: 50 verificações
 ```
 
 Cobrem: PIN/sessões, validações, duplicados na importação, sobreposições e
@@ -277,6 +277,7 @@ Toda a mutação envia `baseVersao`. Respostas:
 |---|---|
 | Postos não abrem a página | Mesma rede? Usar o IP mostrado no arranque; firewall (ver `INSTALL.md`) |
 | PIN esquecido | Parar servidor, apagar `config-pin.json`, arrancar de novo |
+| «FICHEIRO DE DADOS ILEGÍVEL» ao arrancar | O ficheiro é preservado como `dados.json.corrompida-…` e o servidor não arranca para não apagar dados; restaure a última cópia de segurança para `dados.json` |
 | «Registo alterado noutro posto» | Normal: outro posto gravou — confirmar e gravar |
 | «Hora cheia» | `maxPorHora` atingido — ver secção 12 |
 | Porta ocupada | `node servidor.js 9090` |
