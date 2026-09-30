@@ -96,6 +96,9 @@ function ok(nome, cond) {
 
   r = await api("/api/utentes", { baseVersao: base, nome: "", contacto: "911", vacina: "G" });
   ok("utente sem nome recusado", r.s === 400);
+  r = await api("/api/utentes", { baseVersao: base, nome: "Utente Sem Contacto", vacina: "G" });
+  ok("utente sem contacto aceite (contacto opcional)", r.s === 200);
+  if (r.s === 200) base = r.d.versao;
   r = await api("/api/utentes", { baseVersao: base, nome: "X", contacto: "911", vacina: "XX" });
   ok("vacina inválida recusada", r.s === 400);
   r = await api("/api/utentes", { baseVersao: base, nome: "Maria Fernandes", contacto: "912 345 678", vacina: "G" });
@@ -108,12 +111,19 @@ function ok(nome, cond) {
     { nome: "Ana Rodrigues", contacto: "934 567 890", vacina: "C" },
     { nome: "Bruno Lima", contacto: "945 678 901", vacina: "gripe" },
     { nome: "Ana Rodrigues", contacto: "934 567 890", vacina: "C" },
-    { nome: "Inválido", contacto: "", vacina: "G" }
+    { nome: "Inválido", contacto: "", vacina: "" }
   ]});
   ok("importação aceita (1º lote)", r.s === 200);
   ok("2 inseridos", r.d.inseridos === 2);
   ok("1 duplicado detectado", r.d.duplicados === 1);
   ok("1 inválido ignorado", r.d.ignorados === 1);
+  base = r.d.versao;
+  r = await api("/api/importar", { baseVersao: base, linhas: [
+    { nome: "Carlos Semcontacto", contacto: "", vacina: "C" },
+    { nome: "Diana Duplo-Ponto-Virgula", contacto: "", vacina: "G" }
+  ] });
+  ok("importação com contacto vazio aceita (nome;;vacina)", r.s === 200 && r.d.inseridos === 2);
+  if (r.s === 200) base = r.d.versao;
   base = r.d.versao;
   r = await api("/api/importar", { baseVersao: base, linhas: [{ nome: "Ana Rodrigues", contacto: "934 567 890", vacina: "C" }] });
   ok("reimportação não duplica", r.d.duplicados === 1 && r.d.inseridos === 0);

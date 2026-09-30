@@ -15,11 +15,12 @@ function validarUtente(u, avisos) {
   if (!u || typeof u !== "object") { avisos.push("utente não-objeto ignorado"); return null; }
   if (typeof u.id !== "string" || !u.id) { avisos.push("utente sem id ignorado"); return null; }
   if (typeof u.nome !== "string" || !u.nome.trim()) { avisos.push(`utente ${u.id.slice(0, 8)} sem nome ignorado`); return null; }
-  if (typeof u.contacto !== "string" || !u.contacto.trim()) { avisos.push(`utente ${u.nome} sem contacto ignorado`); return null; }
+  if (u.contacto !== undefined && u.contacto !== null && typeof u.contacto !== "string") { avisos.push(`utente ${u.nome} com contacto inválido — limpo`); u = Object.assign({}, u, { contacto: "" }); }
+  const contacto = String(u.contacto == null ? "" : u.contacto).trim();
   const vacina = normalizarVac(u.vacina);
   if (!vacina) { avisos.push(`utente ${u.nome} com vacina inválida — assumida G`); }
   return Object.assign({}, u, {
-    nome: u.nome.trim(), contacto: u.contacto.trim(),
+    nome: u.nome.trim(), contacto,
     vacina: vacina || "G",
     obs: typeof u.obs === "string" ? u.obs : "",
     rev: Number.isInteger(u.rev) && u.rev > 0 ? u.rev : 1

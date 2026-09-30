@@ -159,7 +159,7 @@ function criarApi(ctx) {
       const nome = String(corpo.nome || "").trim();
       const contacto = String(corpo.contacto || "").trim();
       const vacina = U.normalizarVac(corpo.vacina);
-      if (!nome || !contacto) return resp(400, { erro: "Nome e contacto obrigatórios." });
+      if (!nome) return resp(400, { erro: "Nome obrigatório." });
       if (!vacina) return resp(400, { erro: "Vacina inválida (G, C ou G+C)." });
       const k = U.chaveUtente(nome, contacto);
       const dup = dados.utentes.find(u => U.chaveUtente(u.nome, u.contacto)[0] === k[0] && U.chaveUtente(u.nome, u.contacto)[1] === k[1]);
@@ -181,7 +181,7 @@ function criarApi(ctx) {
         const n = String((ln && ln.nome) || "").trim();
         const c = String((ln && ln.contacto) || "").trim();
         const v = U.normalizarVac(ln && ln.vacina);
-        if (!n || !c || !v) { ignorados++; continue; }
+        if (!n || !v) { ignorados++; continue; }
         const k = U.chaveUtente(n, c).join("|");
         if (existentes.has(k)) { duplicados++; continue; }
         existentes.add(k);
@@ -201,7 +201,7 @@ function criarApi(ctx) {
       const nome = corpo.nome !== undefined ? String(corpo.nome).trim() : u.nome;
       const contacto = corpo.contacto !== undefined ? String(corpo.contacto).trim() : u.contacto;
       const vacina = corpo.vacina !== undefined ? U.normalizarVac(corpo.vacina) : u.vacina;
-      if (!nome || !contacto) return resp(400, { erro: "Nome e contacto obrigatórios." });
+      if (!nome) return resp(400, { erro: "Nome obrigatório." });
       if (vacina === null) return resp(400, { erro: "Vacina inválida." });
       registar(posto, "editar utente", u.id, `${u.nome} -> ${nome}`);
       Object.assign(u, { nome, contacto, vacina, obs: corpo.obs !== undefined ? String(corpo.obs).trim() : u.obs, rev: u.rev + 1, atualizadoEm: U.agora() });

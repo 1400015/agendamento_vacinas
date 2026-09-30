@@ -132,7 +132,7 @@ body{background:#fff}main,.painel{max-width:none}}
       <button class="btn primario" onclick="addUtente()">Adicionar</button>
     </div>
     <div class="barra">
-      <div class="campo"><label>Importar .txt (nome; contacto; vacina)</label><input type="file" id="ficheiro-txt" accept=".txt,text/plain"></div>
+      <div class="campo"><label>Importar .txt (nome; contacto; vacina — contacto opcional)</label><input type="file" id="ficheiro-txt" accept=".txt,text/plain"></div>
       <div class="campo"><label>Pesquisar</label><input id="pesquisa" placeholder="Nome ou contacto…" style="width:220px"></div>
       <button class="btn" onclick="exportarUtentesPDF()">Exportar PDF</button>
     </div>
@@ -349,7 +349,7 @@ async function addUtente(){
   const nome=document.getElementById("f-nome").value.trim();
   const contacto=document.getElementById("f-contacto").value.trim();
   const vacina=document.getElementById("f-vacina").value;
-  if(!nome||!contacto){alert("Preencha o nome e o contacto.");return;}
+  if(!nome){alert("Preencha o nome.");return;}
   const obs=document.getElementById("f-obs").value.trim();
   const r=await mutacao("/api/utentes",{nome,contacto,vacina,obs},
     `O utente <b>${esc(nome)}</b> vai ser adicionado à lista.`);
@@ -367,7 +367,7 @@ function importarTxt(ev){
       texto=await new Promise(res=>{l2.onload=()=>res(l2.result);l2.readAsText(f,"windows-1252");});
     }
     const linhas=texto.split(/\r?\n/).filter(x=>x.trim()).map(ln=>{
-      const p=ln.split(";");return{nome:p[0],contacto:p[1],vacina:p[2]};
+      const p=ln.split(";");return{nome:p[0],contacto:(p[1]||"").trim(),vacina:p[2]};
     });
     if(!linhas.length){alert("Nenhuma linha válida.");ev.target.value="";return;}
     const r=await mutacao("/api/importar",{linhas},`${linhas.length} utentes vão ser adicionados.`);
