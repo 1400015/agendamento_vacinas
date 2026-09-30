@@ -32,7 +32,7 @@ node servidor.js
 ```
 ================================================================
   Central de Marcações de Vacinas — Farmácia Boavista
-  Servidor na porta 8080  ·  horário 09:00–18:30 (cada 30 min)
+  Servidor na porta 8080  ·  horário 08:30–12:00 e 14:30–19:30 (cada 30 min)
   Máx. por hora: 2 (exceção justificada com motivo)
   Neste computador:  http://localhost:8080
   Nos postos da frente: http://192.168.1.50:8080
@@ -322,10 +322,12 @@ Contém:
 ```json
 {
   "maxPorHora": 2,           // máx. marcações simultâneas por hora
-  "horaInicio": "09:00",     // início do horário
-  "horaFim": "18:30",        // fim do horário
+  "horaInicio": "08:30",     // início da manhã
+  "horaFim": "12:00",        // fim da manhã
+  "horaInicio2": "14:30",    // início da tarde
+  "horaFim2": "19:30",       // fim da tarde
   "intervaloMin": 30,        // 15, 30 ou 60 minutos
-  "mostrarSabado": true,     // mostrar sábado na grelha
+  "mostrarSabado": false,    // grelha de 2.ª a 6.ª (sábado/domingo nunca aceitam marcações)
   "pastaBackup": ""          // pasta de backup (rede ou local)
 }
 ```
@@ -341,7 +343,9 @@ Contém:
 ```json
 {
   "horaInicio": "08:00",
-  "horaFim": "17:00",
+  "horaFim": "12:30",
+  "horaInicio2": "14:00",
+  "horaFim2": "17:00",
   "intervaloMin": 15
 }
 ```

@@ -211,17 +211,20 @@ Criado automaticamente junto ao servidor; editável (reiniciar depois):
 ```json
 {
   "maxPorHora": 2,
-  "horaInicio": "09:00",
-  "horaFim": "18:30",
+  "horaInicio": "08:30",
+  "horaFim": "12:00",
+  "horaInicio2": "14:30",
+  "horaFim2": "19:30",
   "intervaloMin": 30,
-  "mostrarSabado": true
+  "mostrarSabado": false
 }
 ```
 
 - `maxPorHora` — máximo de marcações ativas por horário (com ou sem
   justificação, o limite é absoluto);
 - `intervaloMin` — 15, 30 ou 60 minutos;
-- `mostrarSabado` — `false` esconde o sábado do calendário.
+- `horaInicio2`/`horaFim2` — segundo período do dia (pausa de almoço entre `horaFim` e `horaInicio2`);
+- `mostrarSabado` — `false` esconde o sábado do calendário (por omissão: só 2.ª a 6.ª; marcações ao sábado/domingo são sempre recusadas pelo servidor).
 
 ## 13. API (referência)
 

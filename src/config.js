@@ -22,25 +22,36 @@ function carregarConfig() {
   }
   const def = {
     maxPorHora: Number(cfg.maxPorHora) || 2,
-    horaInicio: validarHoraTexto(cfg.horaInicio) || "09:00",
-    horaFim: validarHoraTexto(cfg.horaFim) || "18:30",
+    horaInicio: validarHoraTexto(cfg.horaInicio) || "08:30",
+    horaFim: validarHoraTexto(cfg.horaFim) || "12:00",
+    horaInicio2: validarHoraTexto(cfg.horaInicio2) || "14:30",
+    horaFim2: validarHoraTexto(cfg.horaFim2) || "19:30",
     intervaloMin: [15, 30, 60].includes(Number(cfg.intervaloMin)) ? Number(cfg.intervaloMin) : 30,
-    mostrarSabado: cfg.mostrarSabado !== undefined ? !!cfg.mostrarSabado : true,
+    mostrarSabado: cfg.mostrarSabado !== undefined ? !!cfg.mostrarSabado : false,
     pastaBackup: typeof cfg.pastaBackup === "string" ? cfg.pastaBackup.trim() : ""
   };
   if (validarHoraTexto(cfg.horaInicio) === null && cfg.horaInicio !== undefined) {
-    logOp("AVISO", "horaInicio inválida («" + cfg.horaInicio + "») — a usar 09:00.");
-    console.error("AVISO: horaInicio inválida («" + cfg.horaInicio + "») — a usar 09:00.");
+    logOp("AVISO", "horaInicio inválida («" + cfg.horaInicio + "») — a usar 08:30.");
+    console.error("AVISO: horaInicio inválida («" + cfg.horaInicio + "») — a usar 08:30.");
   }
   if (validarHoraTexto(cfg.horaFim) === null && cfg.horaFim !== undefined) {
-    logOp("AVISO", "horaFim inválida («" + cfg.horaFim + "») — a usar 18:30.");
-    console.error("AVISO: horaFim inválida («" + cfg.horaFim + "») — a usar 18:30.");
+    logOp("AVISO", "horaFim inválida («" + cfg.horaFim + "») — a usar 12:00.");
+    console.error("AVISO: horaFim inválida («" + cfg.horaFim + "») — a usar 12:00.");
   }
-  const [a1, b1] = def.horaInicio.split(":").map(Number), [a2, b2] = def.horaFim.split(":").map(Number);
-  if (a2 * 60 + b2 < a1 * 60 + b1 + def.intervaloMin) {
-    logOp("AVISO", `horário sem slots válidos (${def.horaInicio}–${def.horaFim}, intervalo ${def.intervaloMin}) — a usar 09:00–18:30.`);
-    console.error("AVISO: horário sem slots válidos (" + def.horaInicio + "–" + def.horaFim + " com intervalo " + def.intervaloMin + " min) — a usar 09:00–18:30.");
-    def.horaInicio = "09:00"; def.horaFim = "18:30";
+  if (validarHoraTexto(cfg.horaInicio2) === null && cfg.horaInicio2 !== undefined) {
+    logOp("AVISO", "horaInicio2 inválida («" + cfg.horaInicio2 + "») — a usar 14:30.");
+    console.error("AVISO: horaInicio2 inválida («" + cfg.horaInicio2 + "») — a usar 14:30.");
+  }
+  if (validarHoraTexto(cfg.horaFim2) === null && cfg.horaFim2 !== undefined) {
+    logOp("AVISO", "horaFim2 inválida («" + cfg.horaFim2 + "») — a usar 19:30.");
+    console.error("AVISO: horaFim2 inválida («" + cfg.horaFim2 + "») — a usar 19:30.");
+  }
+  const minutos = t => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+  const slotsPeriodo = (ini, fim) => fim >= ini + def.intervaloMin;
+  if (!slotsPeriodo(minutos(def.horaInicio), minutos(def.horaFim)) && !slotsPeriodo(minutos(def.horaInicio2), minutos(def.horaFim2))) {
+    logOp("AVISO", `horário sem slots válidos — a usar 08:30–12:00 e 14:30–19:30.`);
+    console.error("AVISO: horário sem slots válidos — a usar 08:30–12:00 e 14:30–19:30.");
+    def.horaInicio = "08:30"; def.horaFim = "12:00"; def.horaInicio2 = "14:30"; def.horaFim2 = "19:30";
   }
   let atual = "";
   try { atual = fs.readFileSync(FICHEIRO_CONFIG, "utf8"); } catch (e) {}
@@ -52,14 +63,20 @@ function carregarConfig() {
 function gravarConfig(cfg) { fs.writeFileSync(FICHEIRO_CONFIG, JSON.stringify(cfg, null, 2)); }
 
 function gerarHoras(cfg) {
-  const [h1, m1] = cfg.horaInicio.split(":").map(Number);
-  const [h2, m2] = cfg.horaFim.split(":").map(Number);
-  const ini = h1 * 60 + m1, fim = h2 * 60 + m2;
   const horas = [];
-  for (let t = ini; t <= fim; t += cfg.intervaloMin) {
-    horas.push(String(Math.floor(t / 60)).padStart(2, "0") + ":" + String(t % 60).padStart(2, "0"));
-  }
-  return horas;
+  const gerarPeriodo = (inicio, fim) => {
+    if (!inicio || !fim) return;
+    const [h1, m1] = inicio.split(":").map(Number);
+    const [h2, m2] = fim.split(":").map(Number);
+    const ini = h1 * 60 + m1, fimMin = h2 * 60 + m2;
+    if (fimMin < ini + cfg.intervaloMin) return;
+    for (let t = ini; t <= fimMin; t += cfg.intervaloMin) {
+      horas.push(String(Math.floor(t / 60)).padStart(2, "0") + ":" + String(t % 60).padStart(2, "0"));
+    }
+  };
+  gerarPeriodo(cfg.horaInicio, cfg.horaFim);
+  gerarPeriodo(cfg.horaInicio2, cfg.horaFim2);
+  return [...new Set(horas)];
 }
 
 module.exports = { FICHEIRO_CONFIG, carregarConfig, gravarConfig, gerarHoras };

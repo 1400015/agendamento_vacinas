@@ -90,7 +90,7 @@ servidor.listen(PORTA, "0.0.0.0", () => {
   const ips = Object.values(networkInterfaces()).flat().filter(i => i && i.family === "IPv4" && !i.internal).map(i => i.address);
   console.log("═".repeat(64));
   console.log("  Central de Marcações de Vacinas — Farmácia Boavista");
-  console.log(`  Servidor na porta ${PORTA}  ·  horário ${cfg.horaInicio}–${cfg.horaFim} (cada ${cfg.intervaloMin} min)`);
+  console.log(`  Servidor na porta ${PORTA}  ·  horário ${cfg.horaInicio}–${cfg.horaFim} e ${cfg.horaInicio2}–${cfg.horaFim2} (cada ${cfg.intervaloMin} min)`);
   console.log(`  Máx. por hora: ${cfg.maxPorHora} (exceção justificada com motivo)`);
   console.log(`  Neste computador:  http://localhost:${PORTA}`);
   (ips.length ? ips : ["<ip-do-servidor>"]).forEach(ip => console.log(`  Nos postos da frente: http://${ip}:${PORTA}`));

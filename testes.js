@@ -305,8 +305,15 @@ function ok(nome, cond) {
   }
   r = await api("/api/marcacoes/" + dupBase.id, { baseVersao: base, rev: dupBase.rev, estado: null }, "PUT");
   ok("estado:null recusado (400) — nunca corrompe o registo", r.s === 400);
-  r = await api("/api/marcacoes/" + dupBase.id, { baseVersao: base, rev: dupBase.rev, reagendar: true, novaData: "2099-09-26", novaHora: "10:00", justificada: true }, "PUT");
+  r = await api("/api/marcacoes/" + dupBase.id, { baseVersao: base, rev: dupBase.rev, reagendar: true, novaData: "2099-09-28", novaHora: "10:00", justificada: true }, "PUT");
   ok("reagendar justificado sem motivo recusado (400) — coerente com POST", r.s === 400);
+  r = await api("/api/marcacoes", { baseVersao: base, utenteId: maria.id, data: "2099-10-03", hora: "10:00", vacinas: ["G"] });
+  ok("marcação ao sábado recusada (só dias úteis)", r.s === 400);
+  r = await api("/api/marcacoes", { baseVersao: base, utenteId: maria.id, data: "2099-10-04", hora: "10:00", vacinas: ["G"] });
+  ok("marcação ao domingo recusada (só dias úteis)", r.s === 400);
+  r = await api("/api/marcacoes", { baseVersao: base, utenteId: maria.id, data: "2099-09-29", hora: "13:00", vacinas: ["G"] });
+  ok("hora na pausa de almoço recusada (fora dos períodos)", r.s === 400);
+  if (r.s === 200) base = r.d.versao;
 
   console.log("\n[304 leve no /api/dados]");
   const vAtual = (await api("/api/dados")).d.versao;

@@ -228,6 +228,7 @@ function criarApi(ctx) {
       const utente = dados.utentes.find(x => x.id === corpo.utenteId);
       if (!utente) return resp(409, { erro: "Utente não existe (eliminado noutro posto?)" });
       if (!data || !hora) return resp(400, { erro: `Data válida e hora entre ${horas[0]} e ${horas[horas.length - 1]} obrigatórias.` });
+      if (U.fimDeSemana(data)) return resp(400, { erro: "Não é possível agendar ao sábado ou domingo (só dias úteis)." });
       const vacinas = U.normalizarSlots(corpo.vacinas);
       const just = !!corpo.justificada;
       const motivo = String(corpo.motivo || "").trim();
@@ -261,6 +262,8 @@ function criarApi(ctx) {
       const nh = corpo.novaHora !== undefined ? (horas.includes(corpo.novaHora) ? corpo.novaHora : null) : null;
       if ((corpo.novaData || corpo.novaHora) && !(nd && nh))
         return resp(400, { erro: "Para reagendar indique data e hora válidas." });
+      if (nd && U.fimDeSemana(nd))
+        return resp(400, { erro: "Não é possível agendar ao sábado ou domingo (só dias úteis)." });
       const reagendar = !!corpo.reagendar;
 
       if (reagendar && nd && nh) {

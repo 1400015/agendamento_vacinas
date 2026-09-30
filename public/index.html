@@ -428,6 +428,7 @@ function abrirMarcar(id,data,hora){
 }
 async function confirmarMarcar(id){
   const data=val("m-data"),hora=val("m-hora");
+  if(fimDeSemanaISO(data)){alert("Não é possível agendar ao sábado ou domingo (só dias úteis).");return;}
   const vac=val("m-vac")==="G+C"?["G","C"]:[val("m-vac")];
   fecharModal();
   await mutacao("/api/marcacoes",{utenteId:id,data,hora,vacinas:vac},
@@ -457,6 +458,7 @@ function abrirEstadoMarcacao(mid){
 function ESTADOS_UI(){return["agendado","administrado","faltou","cancelado"];}
 async function guardarMarcacao(id,rev,dataAntiga,horaAntiga){
   const nd=val("x-data"),nh=val("x-hora"),estado=val("x-estado");
+  if((nd!==dataAntiga||nh!==horaAntiga)&&fimDeSemanaISO(nd)){alert("Não é possível agendar ao sábado ou domingo (só dias úteis).");return;}
   const corpo={rev,estado};
   if(nd!==dataAntiga||nh!==horaAntiga){corpo.novaData=nd;corpo.novaHora=nh;corpo.reagendar=true;}
   fecharModal();
@@ -470,6 +472,7 @@ async function apagarMarcacao(id,rev){
 
 /* ============ calendário ============ */
 const DIAS=["Segunda","Terça","Quarta","Quinta","Sexta","Sábado"];
+function fimDeSemanaISO(isoD){const[a,m,d]=isoD.split("-").map(Number);const g=new Date(a,m-1,d).getDay();return g===0||g===6;}
 function segundaDe(d){const d2=new Date(d);d2.setHours(0,0,0,0);d2.setDate(d2.getDate()-(d2.getDay()+6)%7);return d2;}
 function mudarSemana(n){semanaBase.setDate(semanaBase.getDate()+7*n);renderCal();}
 function irParaSemanaAtual(){semanaBase=segundaDe(new Date());renderCal();}

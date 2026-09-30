@@ -205,23 +205,25 @@ U.logOp("ERRO", "backup falhou: Permission denied");
 
 1. **Carregamento com Validação**
    - Se config.json ilegível → preserva + pára (como dados.json)
-   - Campos inválidos → usa defeito (ex.: horaInicio "25:00" → "09:00")
-   - Valida intervalo: se horaFim - horaInicio < intervaloMin → usa padrão
+   - Campos inválidos → usa defeito (ex.: horaInicio "25:00" → "08:30")
+   - Valida períodos: cada um (manhã e tarde) tem de ter pelo menos um slot; senão usa 08:30–12:00 e 14:30–19:30
 
 2. **Defaults**
    ```javascript
    {
      maxPorHora: 2,              // máx. marcações simultâneas por hora
-     horaInicio: "09:00",        // início do horário
-     horaFim: "18:30",           // fim do horário
+     horaInicio: "08:30",        // início da manhã
+     horaFim: "12:00",           // fim da manhã
+     horaInicio2: "14:30",      // início da tarde
+     horaFim2: "19:30",         // fim da tarde
      intervaloMin: 30,           // 15, 30 ou 60 minutos
-     mostrarSabado: true,        // incluir sábado na grelha
+     mostrarSabado: false,       // grelha de 2.ª a 6.ª; fim de semana nunca aceita marcações
      pastaBackup: ""             // pasta de backup (rede ou local)
    }
    ```
 
 3. **Geração de Horários**
-   - `gerarHoras(cfg)` — Array de strings ["09:00", "09:30", "10:00", ...]
+   - `gerarHoras(cfg)` — Array de strings dos dois períodos ["08:30", "09:00", …, "12:00", "14:30", …, "19:30"]
    - Usado na validação de cada marcação
 
 ### `backup.js` (64 linhas) — Cópia Diária Rotativa
