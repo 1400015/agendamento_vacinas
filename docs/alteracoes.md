@@ -1,5 +1,25 @@
 # Alterações
 
+## 2026-09-30 (7) — Bloqueio temporal: 15 min por marcação + 5 por acompanhante
+
+O modelo de ocupação passa de contagem de lugares a **bloqueio temporal**:
+
+- Cada marcação ativa bloqueia **15 minutos** do horário; cada acompanhante
+  da reserva múltipla soma **5 minutos** (ex.: Maria + marido às 09:35
+  bloqueia 09:35–09:55, 20 min).
+- A hora fica cheia quando a soma dos bloqueios excede o `intervaloMin`
+  (30 min por defeito): num slot de 30 min cabem 2 marcações simples
+  (15+15) ou 1 grupo de 1 acompanhante + outra simples se couber (20+15=35
+  já não cabe).
+- O `maxPorHora` mantém-se como teto de segurança de lugares.
+- Exceção justificada continua a permitir furar a regra com motivo escrito.
+- Mensagem do cliente e painel de configuração atualizados.
+
+Testes: 181 → **183** (2.ª marcação cabe no slot sem justificação; grupo
+20 min cabe; 3.ª marcação recusada com `slot_ocupado`). Baterias:
+**183/183** (servidor) e **68/68** (interface).
+
+
 ## 2026-09-30 (6) — Reserva múltipla (marcação para acompanhantes)
 
 Peculiaridade do balcão: um utente vem marcar para si **e para mais pessoas**

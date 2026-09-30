@@ -206,7 +206,8 @@ body{background:#fff}main,.painel{max-width:none}}
     <div class="barra">
       <div class="campo"><label>Intervalo entre marcações</label>
         <select id="g-intervaloMin"><option value="15">15 min</option><option value="30">30 min</option><option value="60">60 min</option></select></div>
-      <div class="campo"><label>Máx. por hora</label><input type="number" id="g-maxPorHora" min="1" max="20" style="width:90px"></div>
+      <div class="campo"><label>Máx. lugares por hora</label><input type="number" id="g-maxPorHora" min="1" max="20" style="width:90px"></div>
+      <div class="campo"><label>Bloqueio por marcação</label><input type="text" value="15 min + 5 min por acompanhante" disabled style="width:170px" title="Cada marcação bloqueia 15 minutos do horário; cada acompanhante soma 5 minutos"></div>
       <div class="campo check"><input type="checkbox" id="g-mostrarSabado"><label>Mostrar o sábado no calendário</label></div>
     </div>
 

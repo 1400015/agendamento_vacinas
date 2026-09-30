@@ -137,14 +137,23 @@ function ok(nome, cond) {
   base = r.d.versao;
   const marcMaria = r.d.marcacoes[r.d.marcacoes.length - 1];
 
+  /* bloqueio temporal: 15 min por marcação + 5 por acompanhante; slot de 30 min */
   r = await api("/api/marcacoes", { baseVersao: base, utenteId: joao.id, data: D, hora: H, vacinas: ["G", "C"] });
-  ok("sobreposição sem justificação recusada", r.s === 409 && r.d.motivo === "slot_ocupado");
-  ok("ocupante identificado", (r.d.ocupantes || []).some(o => o.nome === "Maria Fernandes"));
+  ok("2.ª marcação cabe no slot (15+15 = 30 min) sem justificação", r.s === 200);
+  base = r.d.versao;
 
-  r = await api("/api/marcacoes", { baseVersao: base, utenteId: joao.id, data: D, hora: H, vacinas: ["G", "C"], justificada: true });
+  r = await api("/api/marcacoes", { baseVersao: base, utenteId: joao.id, data: "2099-09-23", hora: "10:00", vacinas: ["G"], grupoExtras: 1, grupoVacinas: "G" });
+  ok("grupo (15+5 = 20 min) cabe no slot vazio", r.s === 200);
+  if (r.s === 200) base = r.d.versao;
+
+  r = await api("/api/marcacoes", { baseVersao: base, utenteId: maria.id, data: "2099-09-23", hora: "10:00", vacinas: ["G"] });
+  ok("3.ª marcação já não cabe (20+15 > 30) recusada (409 slot_ocupado)", r.s === 409 && r.d.motivo === "slot_ocupado");
+  ok("ocupante identificado", (r.d.ocupantes || []).some(o => o.nome === "João Santos"));
+
+  r = await api("/api/marcacoes", { baseVersao: base, utenteId: maria.id, data: "2099-09-23", hora: "11:00", vacinas: ["G"], justificada: true });
   ok("justificação sem motivo recusada", r.s === 400);
 
-  r = await api("/api/marcacoes", { baseVersao: base, utenteId: joao.id, data: D, hora: H, vacinas: ["G", "C"], justificada: true, motivo: "chegaram juntos; mesma família" });
+  r = await api("/api/marcacoes", { baseVersao: base, utenteId: maria.id, data: "2099-09-23", hora: "11:00", vacinas: ["G"], justificada: true, motivo: "chegaram juntos; mesma família" });
   ok("justificada com motivo aceite", r.s === 200);
   base = r.d.versao;
 

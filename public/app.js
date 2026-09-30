@@ -110,7 +110,7 @@ async function mutacao(rota,corpo,msg,metodo){
     }
     if(d.motivo==="slot_ocupado"){
       const nomes=(d.ocupantes||[]).map(o=>o.nome).join(", ");
-      const just=prompt(`A hora está ocupada (${nomes}). Máx. ${config.maxPorHora} por horário.\nEscreva o motivo da exceção justificada, ou cancele.`);
+      const just=prompt(`A hora está ocupada (${nomes}). Cada marcação bloqueia 15 min (+5 por acompanhante) num horário de ${config.intervaloMin} min; máx. ${config.maxPorHora} lugares.\nEscreva o motivo da exceção justificada, ou cancele.`);
       if(just&&just.trim().length>=4){
         const c2=Object.assign({},c,{justificada:true,motivo:just.trim()});
         const r2=await api(rota,c2,metodo);   /* PUT/DELETE têm de manter o método também no retry justificado */
