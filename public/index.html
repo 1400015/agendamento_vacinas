@@ -22,6 +22,7 @@ body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;b
 .btn.primario{background:var(--prim);border-color:var(--prim);color:#fff}
 .btn.primario:hover{background:var(--prim-esc)}
 .btn.mini{padding:3px 8px;font-size:.75rem}
+.icone{width:1em;height:1em;vertical-align:-0.12em;margin-right:4px;flex:none}
 .banner{margin:12px 20px 0;background:#fefce8;border:1px solid #fde047;border-radius:var(--raio);padding:10px 14px;font-size:.85rem;display:flex;justify-content:space-between;gap:10px;align-items:center}
 .banner.erro{background:#fef2f2;border-color:#fecaca}
 [hidden]{display:none !important}
@@ -92,8 +93,22 @@ body{background:#fff}main,.painel{max-width:none}}
 </head>
 <body>
 
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <symbol id="i-seringa" viewBox="0 0 24 24"><path d="M20.7 4.3c-.4-.4-1-.4-1.4 0l-1.6 1.6-1.3-1.3c-.4-.4-1-.4-1.4 0l-1.4 1.4 4.1 4.1 1.4-1.4c.4-.4.4-1 0-1.4L17.8 5.7l1.6-1.6c.6 0 .6-1 0-1.4zM13 8.5l-8.2 8.2c-.4.4-.7.9-.8 1.4l-.5 2.6c0 .3.2.6.5.5l2.6-.5c.5-.1 1-.4 1.4-.8L16.6 12 13 8.5z" fill="currentColor"/></symbol>
+  <symbol id="i-calendario" viewBox="0 0 24 24"><path d="M7 2v2h10V2h-2v2H9V2H7zM5 5c-1.1 0-2 .9-2 2v13c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2H5zm0 5h14v10H5V10z" fill="currentColor"/><path d="M8 13h3v3H8v-3z" fill="currentColor"/></symbol>
+  <symbol id="i-engrenagem" viewBox="0 0 24 24"><path d="M12 8a4 4 0 100 8 4 4 0 000-8zm0 6a2 2 0 110-4 2 2 0 010 4z" fill="currentColor"/><path d="M19.4 13c.1-.3.1-.7.1-1s0-.7-.1-1l2-1.6-.9-1.6-2.3.7c-.5-.5-1-1-1.6-1.3l-.2-2.4-1.8-.5-1.1 2.1c-.3 0-.7-.1-1-.1s-.7 0-1 .1L10.3 3.3l-1.8.5-.2 2.4c-.6.3-1.1.8-1.6 1.3l-2.3-.7-.9 1.6L5.5 11c-.1.3-.1.7-.1 1s0 .7.1 1l-2 1.6.9 1.6 2.3-.7c.5.5 1 1 1.6 1.3l.2 2.4 1.8.5 1.1-2.1c.3.1.7.1 1 .1s.7 0 1-.1l1.1 2.1 1.8-.5.2-2.4c.6-.3 1.1-.8 1.6-1.3l2.3.7.9-1.6-2-1.6z" fill="none"/></symbol>
+  <symbol id="i-historico" viewBox="0 0 24 24"><path d="M13 3a9 9 0 100 18c2.4 0 4.5-.9 6.1-2.4L22 8l-4.6-4.6A8.9 8.9 0 0013 3zm0 16a7 7 0 110-14 7 7 0 010 14zm.5-11h-2v4.7l4.2 2.5 1-1.7-3.2-1.9V8z" fill="currentColor"/></symbol>
+  <symbol id="i-pessoa" viewBox="0 0 24 24"><path d="M12 12a5 5 0 100-10 5 5 0 000 10zm0 2c-4.4 0-8 2.2-8 5v3h16v-3c0-2.8-3.6-5-8-5z" fill="currentColor"/></symbol>
+  <symbol id="i-gota" viewBox="0 0 24 24"><path d="M12 2s7 7.6 7 12.5A7 7 0 015 14.5C5 9.6 12 2 12 2z" fill="currentColor"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z" fill="currentColor"/></symbol>
+  <symbol id="i-alerta" viewBox="0 0 24 24"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z" fill="currentColor"/></symbol>
+  <symbol id="i-mais" viewBox="0 0 24 24"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6V5z" fill="currentColor"/></symbol>
+  <symbol id="i-pdf" viewBox="0 0 24 24"><path d="M6 2c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6H6zm8 2.5L18.5 9H14V4.5zM8 13h8v1.5H8V13zm0 3h8v1.5H8V16z" fill="currentColor"/></symbol>
+  <symbol id="i-csv" viewBox="0 0 24 24"><path d="M4 3h16v18H4V3zm2 2v3h12V5H6zm0 5v3h5v-3H6zm7 0v3h5v-3h-5zM6 15v3h5v-3H6zm7 0v3h5v-3h-5z" fill="currentColor"/></symbol>
+</svg>
 <div id="ecra-pin">
   <div class="caixa">
+    <div style="color:var(--prim);margin-bottom:10px"><svg class="icone" style="width:44px;height:44px"><use href="#i-seringa"/></svg></div>
     <h1>Central de Marcações de Vacinas<br>Farmácia Boavista</h1>
     <p id="pin-estado">A verificar o servidor…</p>
     <input id="pin-posto" placeholder="Nome do posto (ex.: Posto 1)">
@@ -107,7 +122,7 @@ body{background:#fff}main,.painel{max-width:none}}
 
 <header class="topo">
   <div>
-    <h1>Central de Marcações de Vacinas — Farmácia Boavista</h1>
+    <h1><svg class="icone" style="width:1.2em;height:1.2em;vertical-align:-0.2em"><use href="#i-seringa"/></svg> Central de Marcações de Vacinas — Farmácia Boavista</h1>
     <p class="sub">Gripe (G) · COVID-19 (C) · Ambas (G+C)</p>
   </div>
   <div class="util">
@@ -120,10 +135,10 @@ body{background:#fff}main,.painel{max-width:none}}
 <div class="banner" id="banner" hidden><span id="banner-txt"></span><button class="btn mini" onclick="document.getElementById('banner').hidden=true">✕</button></div>
 
 <div class="tabs">
-  <button class="tab ativa" id="tab-l-btn" onclick="mostrarTab('l')">Utentes</button>
-  <button class="tab" id="tab-c-btn" onclick="mostrarTab('c')">Calendário semanal</button>
-  <button class="tab" id="tab-g-btn" onclick="mostrarTab('g')">Configuração</button>
-  <button class="tab" id="tab-h-btn" onclick="mostrarTab('h')">Histórico</button>
+  <button class="tab ativa" id="tab-l-btn" onclick="mostrarTab('l')"><svg class="icone"><use href="#i-pessoa"/></svg>Utentes</button>
+  <button class="tab" id="tab-c-btn" onclick="mostrarTab('c')"><svg class="icone"><use href="#i-calendario"/></svg>Calendário semanal</button>
+  <button class="tab" id="tab-g-btn" onclick="mostrarTab('g')"><svg class="icone"><use href="#i-engrenagem"/></svg>Configuração</button>
+  <button class="tab" id="tab-h-btn" onclick="mostrarTab('h')"><svg class="icone"><use href="#i-historico"/></svg>Histórico</button>
 </div>
 
 <main>
@@ -137,13 +152,13 @@ body{background:#fff}main,.painel{max-width:none}}
         <select id="f-vacina"><option value="G">Gripe (G)</option><option value="C">COVID-19 (C)</option><option value="G+C">Ambas (G+C)</option></select>
       </div>
       <div class="campo"><label>Observações</label><input id="f-obs" placeholder="opcional" style="width:180px" maxlength="200"></div>
-      <button class="btn primario" onclick="addUtente()">Adicionar</button>
+      <button class="btn primario" onclick="addUtente()"><svg class="icone"><use href="#i-mais"/></svg>Adicionar</button>
     </div>
     <div class="barra">
       <div class="campo"><label>Importar .txt (nome; contacto; vacina — contacto opcional)</label><input type="file" id="ficheiro-txt" accept=".txt,text/plain"></div>
       <div class="campo"><label>Pesquisar</label><input id="pesquisa" placeholder="Nome ou contacto…" style="width:220px"></div>
-      <button class="btn" onclick="exportarUtentesPDF()">Exportar PDF</button>
-      <button class="btn" onclick="exportarCSV('utentes')">Exportar CSV</button>
+      <button class="btn" onclick="exportarUtentesPDF()"><svg class="icone"><use href="#i-pdf"/></svg>Exportar PDF</button>
+      <button class="btn" onclick="exportarCSV('utentes')"><svg class="icone"><use href="#i-csv"/></svg>Exportar CSV</button>
     </div>
     <div style="overflow-x:auto">
       <table>

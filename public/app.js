@@ -351,9 +351,9 @@ function renderStats(){
     else prog+=doses;
   });
   document.getElementById("stats").innerHTML=
-    `<span class="stat">Programadas esta semana: <b id="s-prog">${prog}</b></span>
-     <span class="stat">Administradas: <b id="s-feitas">${feitas}</b></span>
-     <span class="stat">Faltas: <b>${faltas}</b></span>
+    `<span class="stat"><svg class="icone" style="color:var(--prim)"><use href="#i-calendario"/></svg>Programadas: <b id="s-prog">${prog}</b></span>
+     <span class="stat"><svg class="icone" style="color:#15803d"><use href="#i-check"/></svg>Administradas: <b id="s-feitas">${feitas}</b></span>
+     <span class="stat"><svg class="icone" style="color:var(--aviso)"><use href="#i-alerta"/></svg>Faltas: <b>${faltas}</b></span>
      <span class="stat">Canceladas: <b>${canc}</b></span>`;
 }
 function diasDaSemana(){const n=(config.mostrarSabado===false)?5:6;const a=[];for(let i=0;i<n;i++){const d=new Date(semanaBase);d.setDate(d.getDate()+i);a.push(iso(d));}return a;}
