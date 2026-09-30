@@ -57,11 +57,20 @@ function validarCopia(alvo) {
     throw new Error("a cópia está vazia (0 utentes e 0 marcações) — recusado para não apagar os dados atuais");
   const avisos = [];
   const utentes = (Array.isArray(j.utentes) ? j.utentes : [])
-    .map(u => (u && typeof u === "object" && typeof u.id === "string" && u.id &&
-      typeof u.nome === "string" && u.nome.trim() &&
-      typeof u.contacto === "string" && u.contacto.trim())
-      ? Object.assign({}, u, { nome: u.nome.trim(), contacto: u.contacto.trim(), vacina: U.normalizarVac(u.vacina) || "G", obs: typeof u.obs === "string" ? u.obs : "", rev: Number.isInteger(u.rev) && u.rev > 0 ? u.rev : 1 })
-      : (avisos.push("utente inválido ignorado"), null)).filter(Boolean);
+    .map(u => {
+      // o contacto é OPCIONAL (o servidor aceita utentes sem contacto): não
+      // pode ser motivo para descartar registos ao restaurar uma cópia
+      if (!u || typeof u !== "object" || typeof u.id !== "string" || !u.id ||
+          typeof u.nome !== "string" || !u.nome.trim()) { avisos.push("utente inválido ignorado"); return null; }
+      if (u.contacto != null && typeof u.contacto !== "string") avisos.push(`utente ${u.nome} com contacto inválido — limpo`);
+      return Object.assign({}, u, {
+        nome: u.nome.trim(),
+        contacto: typeof u.contacto === "string" ? u.contacto.trim() : "",
+        vacina: U.normalizarVac(u.vacina) || "G",
+        obs: typeof u.obs === "string" ? u.obs : "",
+        rev: Number.isInteger(u.rev) && u.rev > 0 ? u.rev : 1
+      });
+    }).filter(Boolean);
   const ids = new Set(utentes.map(u => u.id));
   const marcacoes = (Array.isArray(j.marcacoes) ? j.marcacoes : [])
     .map(m => (m && typeof m === "object" && typeof m.id === "string" && m.id &&
@@ -75,7 +84,8 @@ function validarCopia(alvo) {
     schema: ARM.SCHEMA,
     utentes, marcacoes,
     historico: Array.isArray(j.historico) ? j.historico : [],
-    ultimoBackup: typeof j.ultimoBackup === "string" ? j.ultimoBackup : undefined
+    ultimoBackup: typeof j.ultimoBackup === "string" ? j.ultimoBackup : undefined,
+    avisos   // mostrados antes da confirmação: nada é descartado em silêncio
   };
 }
 
@@ -95,6 +105,11 @@ async function main() {
     process.exit(1);
   }
   console.log(`Cópia válida: ${dadosNovos.utentes.length} utentes, ${dadosNovos.marcacoes.length} marcações.`);
+  if (dadosNovos.avisos && dadosNovos.avisos.length) {
+    console.log("AVISO: " + dadosNovos.avisos.length + " registo(s) inválido(s) da cópia serão ignorados:");
+    for (const a of dadosNovos.avisos.slice(0, 10)) console.log("  - " + a);
+    if (dadosNovos.avisos.length > 10) console.log("  … e mais " + (dadosNovos.avisos.length - 10) + ".");
+  }
 
   const resposta = await perguntar(`\nVai substituir ${FICHEIRO_DADOS} pelos dados da cópia.\nEscreva RESTAURAR para confirmar: `);
   if (resposta !== "RESTAURAR") { console.log("Cancelado — nada foi alterado."); return; }

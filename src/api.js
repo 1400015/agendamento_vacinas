@@ -15,14 +15,16 @@ const CAB_SEGURANCA = {
   "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'"
 };
 
-/* contexto: { dados, cfg, horas, persistir, registar, backupAuto } */
+/* contexto: { dados, cfg, horas, horasSabado, persistir, registar, backupAuto } */
 function criarApi(ctx) {
-  const { dados, cfg, horas, persistir, registar } = ctx;
+  const { dados, cfg, horas, horasSabado, persistir, registar } = ctx;
 
   function utenteDe(id) { const u = dados.utentes.find(x => x.id === id); return u ? u.nome : "?"; }
   function ocupantes(data, hora, excetoId) {
     return dados.marcacoes.filter(m => m.data === data && m.hora === hora && U.OCUPAM.includes(m.estado) && m.id !== excetoId);
   }
+  /* horas válidas por dia: o sábado tem períodos próprios; o domingo não tem nenhum */
+  const horasDoDia = data => U.diaDaSemana(data) === 6 ? horasSabado : horas;
 
   async function api(req, res, corpo) {
     const rota = req.url.split("?")[0];
@@ -37,7 +39,7 @@ function criarApi(ctx) {
 
     /* ---------- estado / login ---------- */
     if (rota === "/api/estado" && req.method === "GET")
-      return resp(200, { pinDefinido: A.pinDefinido(), config: cfg, horas });
+      return resp(200, { pinDefinido: A.pinDefinido(), config: cfg, horas, horasSabado });
 
     if (rota === "/api/setup" && req.method === "POST") {
       if (A.pinDefinido()) return resp(403, { erro: "PIN já definido. Para redefinir, pare o servidor e apague config-pin.json." });
@@ -88,16 +90,18 @@ function criarApi(ctx) {
     /* ---------- leitura ---------- */
     if (rota === "/api/dados" && req.method === "GET") {
       const v = Number((req.url.split("versao=")[1] || "").split("&")[0]);
-      if (Number.isInteger(v) && v === dados.versao)
-        return resp(304, { versao: dados.versao });
-      return resp(200, { versao: dados.versao, utentes: dados.utentes, marcacoes: dados.marcacoes, config: cfg, horas, posto });
+      if (Number.isInteger(v) && v === dados.versao) {
+        res.writeHead(304, Object.assign({ "Cache-Control": "no-store" }, CAB_SEGURANCA));   // 304 sem corpo
+        return res.end();
+      }
+      return resp(200, { versao: dados.versao, utentes: dados.utentes, marcacoes: dados.marcacoes, config: cfg, horas, horasSabado, posto });
     }
 
     if (rota === "/api/historico" && req.method === "GET")
       return resp(200, { versao: dados.versao, historico: dados.historico.slice(-500).reverse() });
 
     if (rota === "/api/horas" && req.method === "GET")
-      return resp(200, { horas, config: cfg });
+      return resp(200, { horas, horasSabado, config: cfg });
 
     /* ---------- exportação de dados (cópia de segurança pela interface) ---------- */
     if (rota === "/api/exportar" && req.method === "GET") {
@@ -136,7 +140,7 @@ function criarApi(ctx) {
       dados.versao += 1;
       persistir(dados);
       ctx.backupAuto(false);   // cópia diária; falha nunca bloqueia a gravação
-      resp(200, Object.assign({ versao: dados.versao, utentes: dados.utentes, marcacoes: dados.marcacoes, config: cfg, horas }, extra || {}));
+      resp(200, Object.assign({ versao: dados.versao, utentes: dados.utentes, marcacoes: dados.marcacoes, config: cfg, horas, horasSabado }, extra || {}));
     };
 
     /* ---------- configuração (pasta de backup na rede interna) ---------- */
@@ -224,11 +228,15 @@ function criarApi(ctx) {
     /* ---------- marcações ---------- */
     if (rota === "/api/marcacoes" && req.method === "POST") {
       if (!baseVersaoOk()) return;
-      const data = U.validarData(corpo.data), hora = horas.includes(corpo.hora) ? corpo.hora : null;
+      const data = U.validarData(corpo.data);
       const utente = dados.utentes.find(x => x.id === corpo.utenteId);
       if (!utente) return resp(409, { erro: "Utente não existe (eliminado noutro posto?)" });
-      if (!data || !hora) return resp(400, { erro: `Data válida e hora entre ${horas[0]} e ${horas[horas.length - 1]} obrigatórias.` });
-      if (U.fimDeSemana(data)) return resp(400, { erro: "Não é possível agendar ao sábado ou domingo (só dias úteis)." });
+      if (!data) return resp(400, { erro: "Data válida (AAAA-MM-DD) obrigatória." });
+      if (U.diaDaSemana(data) === 0) return resp(400, { erro: "Não é possível agendar ao domingo." });
+      const horasDia = horasDoDia(data);
+      if (!horasDia.includes(corpo.hora))
+        return resp(400, { erro: `Hora fora do horário${U.diaDaSemana(data) === 6 ? " de sábado" : ""} (${horasDia[0]}–${horasDia[horasDia.length - 1]}).` });
+      const hora = corpo.hora;
       const vacinas = U.normalizarSlots(corpo.vacinas);
       const just = !!corpo.justificada;
       const motivo = String(corpo.motivo || "").trim();
@@ -259,11 +267,13 @@ function criarApi(ctx) {
       const estado = corpo.estado !== undefined ? corpo.estado : m.estado;
       if (!U.ESTADOS.includes(estado)) return resp(400, { erro: "Estado inválido." });
       const nd = corpo.novaData !== undefined ? U.validarData(corpo.novaData) : null;
-      const nh = corpo.novaHora !== undefined ? (horas.includes(corpo.novaHora) ? corpo.novaHora : null) : null;
+      const nh = corpo.novaHora !== undefined ? String(corpo.novaHora) : null;
       if ((corpo.novaData || corpo.novaHora) && !(nd && nh))
         return resp(400, { erro: "Para reagendar indique data e hora válidas." });
-      if (nd && U.fimDeSemana(nd))
-        return resp(400, { erro: "Não é possível agendar ao sábado ou domingo (só dias úteis)." });
+      if (nd && U.diaDaSemana(nd) === 0)
+        return resp(400, { erro: "Não é possível agendar ao domingo." });
+      if (nd && nh && !horasDoDia(nd).includes(nh))
+        return resp(400, { erro: `Hora fora do horário${U.diaDaSemana(nd) === 6 ? " de sábado" : ""}.` });
       const reagendar = !!corpo.reagendar;
 
       if (reagendar && nd && nh) {
@@ -306,7 +316,12 @@ function criarApi(ctx) {
         m.data = nd; m.hora = nh;
       }
       if (corpo.estado !== undefined) m.estado = estado;
-      if (corpo.justificada !== undefined) { m.justificada = !!corpo.justificada; m.motivo = String(corpo.motivo || "").trim(); }
+      if (corpo.justificada !== undefined) {
+        // coerente com POST/reagendar: justificação sem motivo escrito não entra
+        if (corpo.justificada && !String(corpo.motivo || "").trim())
+          return resp(400, { erro: "Exceção justificada exige motivo." });
+        m.justificada = !!corpo.justificada; m.motivo = String(corpo.motivo || "").trim();
+      }
       if (corpo.vacinas !== undefined) m.vacinas = U.normalizarSlots(corpo.vacinas);
       m.rev += 1; m.atualizadoEm = U.agora();
       m.historico.push({ quando: U.agora(), acc: `alterada: ${Object.keys(corpo).filter(k => !["rev", "baseVersao"].includes(k)).join(", ")}`, posto });

@@ -33,6 +33,7 @@ node servidor.js
 ================================================================
   Central de Marcações de Vacinas — Farmácia Boavista
   Servidor na porta 8080  ·  horário 08:30–12:00 e 14:30–19:30 (cada 30 min)
+  Sábado: 09:30–12:00 e 15:00–17:00 — marcações de sábado só nestes períodos
   Máx. por hora: 2 (exceção justificada com motivo)
   Neste computador:  http://localhost:8080
   Nos postos da frente: http://192.168.1.50:8080
@@ -73,10 +74,9 @@ node servidor.js
 ### Adicionar Utente
 
 **Aba Utentes:**
-1. Clicar **Novo Utente**
-2. Preencher: Nome, Contacto (telefone ou email), Vacina (G / C / G+C)
-3. (Opcional) Observações
-4. Clicar **Adicionar**
+1. Preencher os campos ao alto: Nome, Contacto (telefone ou email) e Vacina (G / C / G+C)
+2. (Opcional) Observações
+3. Clicar **Adicionar**
 
 ### Importar Lote de Ficheiro TXT
 
@@ -108,6 +108,11 @@ Ana Rodrigues; 934 567 890; G+C
 2. Clicar numa **célula vazia** (dia + hora)
 3. Selecionar utente
 4. Clicar **Agendar**
+
+**Sábado:** ao escolher um sábado, o horário passa a ser **09:30–12:00** ou
+**15:00–17:00** (as restantes horas ficam indisponíveis na grelha) e é pedida
+uma confirmação — por norma não se vacina ao sábado. Ao **domingo** não é
+possível marcar: o sistema recusa o pedido.
 
 ### Alterar Estado de Marcação
 
@@ -215,9 +220,9 @@ Alguns browsers bloqueiam popups:
 ```
 
 **Rede (configurável):**
-1. Aba Configuração (na interface)
+1. Aba Histórico → caixa «Backup automático — pasta noutro posto da rede»
 2. Escrever caminho: `\\SERVIDOR\compartilha\backups`
-3. Clicar **Testar** para verificar se funciona
+3. Clicar **Testar caminho** para verificar se funciona
 4. Clicar **Guardar**
 
 ### Como Restaurar
@@ -326,8 +331,12 @@ Contém:
   "horaFim": "12:00",        // fim da manhã
   "horaInicio2": "14:30",    // início da tarde
   "horaFim2": "19:30",       // fim da tarde
+  "sabadoInicio": "09:30",   // início da manhã de sábado
+  "sabadoFim": "12:00",      // fim da manhã de sábado
+  "sabadoInicio2": "15:00",  // início da tarde de sábado
+  "sabadoFim2": "17:00",     // fim da tarde de sábado
   "intervaloMin": 30,        // 15, 30 ou 60 minutos
-  "mostrarSabado": false,    // grelha de 2.ª a 6.ª (sábado/domingo nunca aceitam marcações)
+  "mostrarSabado": true,     // mostra a coluna do sábado (marcações só 09:30–12:00 / 15:00–17:00)
   "pastaBackup": ""          // pasta de backup (rede ou local)
 }
 ```

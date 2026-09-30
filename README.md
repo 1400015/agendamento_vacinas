@@ -51,8 +51,13 @@ Runtime único: **Node.js puro**, num só ficheiro de servidor, sem `npm install
 - **Importação via TXT** — `nome; contacto; vacina`; duplicados ignorados;
 - **Marcação telefónica** — dia + hora + vacinas a administrar; utentes G+C
   podem levar ambas na mesma hora ou em marcações separadas;
-- **Calendário semanal** (Seg–Sáb por omissão, configurável) partilhado entre
-  postos, com sobreposições só com justificação escrita;
+- **Calendário semanal** (2.ª a sábado por omissão, configurável)
+  partilhado entre postos, com sobreposições só com justificação escrita;
+- **Sábado com períodos próprios** — marcações aceites apenas entre
+  **09:30–12:00** e **15:00–17:00**, com **aviso de confirmação** ao marcar
+  (por norma não se vacina ao sábado); as restantes horas dessa coluna ficam
+  indisponíveis na grelha;
+- **Domingo sem marcações** — recusado no cliente e no servidor;
 - **Estados**: `Agendado` · `Administrado` · `Não compareceu (ligar novamente)`
   · `Cancelado` — faltas e cancelamentos **libertam a hora**;
 - **Reagendamento**: marcação antiga é preservada no histórico, nova nasce
@@ -81,7 +86,7 @@ Runtime único: **Node.js puro**, num só ficheiro de servidor, sem `npm install
 | Componente | Tecnologia | Notas |
 |---|---|---|
 | Servidor | Node.js puro (`servidor.js`) | Sem `npm install`; porta 8080 por omissão |
-| Cliente | HTML + JS vanilla (`public/index.html`) | Servido pelo próprio servidor |
+| Cliente | HTML + JS vanilla (`public/index.html` + `public/app.js`) | Servido pelo próprio servidor |
 | Dados | `dados.json` | Escrita atómica (tmp + rename) |
 | PIN | `config-pin.json` | Sal + IV + verificador AES-GCM; nunca em claro |
 | Configuração | `config.json` | maxPorHora, horário do calendário |
@@ -117,6 +122,8 @@ esse posto na auditoria.
 - Contadores no topo: **programadas**, **administradas**, faltas, canceladas;
 - Clique numa célula vazia → marcar utente nesse dia/hora;
 - Clique numa marcação → alterar estado, reagendar ou eliminar;
+- **Sábado**: a coluna mostra só os períodos 09:30–12:00 e 15:00–17:00 (as
+  restantes células ficam indisponíveis) e marcar nesse dia pede confirmação;
 - Cores: azul = agendado, verde = administrado, âmbar = faltou,
   cinza = cancelado; **J** = justificada;
 - Exportar PDF (dia / semana completa).
@@ -133,7 +140,9 @@ esse posto na auditoria.
 | Limite por hora | `maxPorHora` (por omissão 2) — mesmo justificado, não excede |
 | Duplicado do utente | O mesmo utente não tem 2 marcações ativas na mesma hora |
 | Reagendamento | Marcação nova nasce `agendada`; a antiga passa ao estado escolhido e liberta a hora. Se ficar num estado que ocupe (`agendado`/`administrado`), a antiga é cancelada automaticamente e fica ligada à nova (`supersedidaPor`), sem contar nas «Canceladas» ou «Faltas» |
-| Horário | Validado no servidor (ex.: recusa 07:00 fora do horário) |
+| Horário | Validado no servidor e no cliente (ex.: recusa 07:00 fora do horário) |
+| Sábado | Só **09:30–12:00** e **15:00–17:00** (períodos próprios em `config.json`); fora deles → `400`. O cliente avisa que é sábado e pede confirmação, e a grelha desativa as horas fora dos períodos |
+| Domingo | Nunca aceita marcações (`400`), mesmo que o dia apareça noutra vista |
 
 ## 7. Controlo de concorrência
 
@@ -157,8 +166,7 @@ esse posto na auditoria.
   nunca é guardado em claro (aprendizado da versão mistral);
 - **Sessões** de 8h em cookie `HttpOnly` + `SameSite=Strict` (o PIN nunca fica
   no browser); sem sessão, a API recusa tudo (`401`);
-- Sem CORS: nenhuma página externa consegue ler a API;
-- Sem CORS/página externa: a app é mesma-origem;
+- Sem CORS: a API é mesma-origem; nenhuma página externa a consegue ler;
 - Dados apenas no servidor da farmácia; nada sai para a internet;
 - **Redefinir PIN esquecido**: parar o servidor, apagar `config-pin.json`,
   arrancar de novo (dados de utentes não são afetados);
@@ -194,15 +202,20 @@ programadas vs. administradas e as justificações.
 ## 11. Testes
 
 ```bash
-node servidor.js 18090     # numa janela
-node testes.js             # noutra: 53 verificações
+node testes-cliente.js     # interface (cliente em DOM mínimo): 46 verificações
+node servidor.js 18090     # numa janela (para a bateria da API)
+node testes.js             # noutra: 124 verificações
 ```
 
 Cobrem: PIN/sessões (incl. rate-limit), validações, duplicados na importação,
-ssobreposições e
-justificações, `maxPorHora`, estados a libertar horário, reagendamento,
-conflitos de versão e de registo, dois postos em simultâneo, eliminações,
-auditoria e serviço da página.
+sobreposições e justificações, `maxPorHora`, estados a libertar horário,
+reagendamento, conflitos de versão e de registo, dois postos em simultâneo,
+eliminações, auditoria, validação de schema na carga, backup/exportação,
+regras de **sábado** (períodos próprios) e **domingo** (recusado) e as
+regressões do cliente (métodos HTTP, sincronização com cookie, grelha do
+calendário, código de arranque). Os `testes-cliente.js` executam o `app.js`
+real e verificam o aviso de sábado, a recusa do domingo, o horário por dia e
+as células indisponíveis da grelha.
 
 ## 12. Configuração (config.json)
 
@@ -215,8 +228,12 @@ Criado automaticamente junto ao servidor; editável (reiniciar depois):
   "horaFim": "12:00",
   "horaInicio2": "14:30",
   "horaFim2": "19:30",
+  "sabadoInicio": "09:30",
+  "sabadoFim": "12:00",
+  "sabadoInicio2": "15:00",
+  "sabadoFim2": "17:00",
   "intervaloMin": 30,
-  "mostrarSabado": false
+  "mostrarSabado": true
 }
 ```
 
@@ -224,7 +241,13 @@ Criado automaticamente junto ao servidor; editável (reiniciar depois):
   justificação, o limite é absoluto);
 - `intervaloMin` — 15, 30 ou 60 minutos;
 - `horaInicio2`/`horaFim2` — segundo período do dia (pausa de almoço entre `horaFim` e `horaInicio2`);
-- `mostrarSabado` — `false` esconde o sábado do calendário (por omissão: só 2.ª a 6.ª; marcações ao sábado/domingo são sempre recusadas pelo servidor).
+- `sabadoInicio`/`sabadoFim`/`sabadoInicio2`/`sabadoFim2` — períodos próprios do
+  sábado (por omissão 09:30–12:00 e 15:00–17:00); fora deles o servidor recusa
+  marcações ao sábado. O aviso ao marcar no sábado é dado na mesma, porque por
+  norma não há vacinação nesse dia;
+- `mostrarSabado` — `true` (por omissão) mostra a coluna do sábado no
+  calendário; `false` esconde-a (grelha só de 2.ª a 6.ª);
+- o **domingo** nunca aceita marcações.
 
 ## 13. API (referência)
 
@@ -236,8 +259,9 @@ Autenticação: `Authorization: Bearer <token>` ou cookie `sessao`.
 | POST | `/api/setup` | Define o PIN inicial; devolve token |
 | POST | `/api/login` | Valida PIN + posto; devolve token |
 | POST | `/api/logout` | Termina a sessão |
-| GET | `/api/dados` | `{versao, utentes, marcacoes, config, horas}` |
+| GET | `/api/dados` | `{versao, utentes, marcacoes, config, horas, horasSabado}` (`304` se `?versao=` atual) |
 | GET | `/api/historico` | Últimas 500 operações de auditoria |
+| GET | `/api/horas` | Horas válidas (`horas`, `horasSabado`) e config |
 | POST | `/api/utentes` | Criar utente |
 | POST | `/api/importar` | Importar lote |
 | PUT | `/api/utentes/:id` | Editar (com `rev` do registo) |
@@ -245,6 +269,10 @@ Autenticação: `Authorization: Bearer <token>` ou cookie `sessao`.
 | POST | `/api/marcacoes` | Criar marcação |
 | PUT | `/api/marcacoes/:id` | Alterar estado / reagendar |
 | DELETE | `/api/marcacoes/:id` | Eliminar |
+| PUT | `/api/config` | Alterar pasta de backup |
+| POST | `/api/backup/testar` | Testar escrita na pasta de backup |
+| POST | `/api/backup` | Backup manual imediato |
+| GET | `/api/exportar` | Descarregar cópia JSON dos dados |
 
 Toda a mutação envia `baseVersao`. Respostas:
 
@@ -284,6 +312,8 @@ Toda a mutação envia `baseVersao`. Respostas:
 | «FICHEIRO DE DADOS ILEGÍVEL» ao arrancar | O ficheiro é preservado como `dados.json.corrompida-…` e o servidor não arranca para não apagar dados; restaure a última cópia de segurança para `dados.json` |
 | «Registo alterado noutro posto» | Normal: outro posto gravou — confirmar e gravar |
 | «Hora cheia» | `maxPorHora` atingido — ver secção 12 |
+| «Hora fora do horário de sábado» | Ao sábado só há marcações das 09:30–12:00 e das 15:00–17:00 (ver secção 12) |
+| Marcação ao domingo recusada | O domingo não tem horário — escolha outro dia |
 | Porta ocupada | `node servidor.js 9090` |
 | Popup bloqueada nos PDF | Permitir popups para o endereço do servidor |
 | Dados "desapareceram" | O servidor tem de correr a partir da mesma pasta (`dados.json`) |

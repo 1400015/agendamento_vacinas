@@ -1,8 +1,154 @@
 # Alterações
 
+## 2026-09-30 (2) — Marcação ao sábado (com aviso) e testes de interface
+
+Pedido: passar a permitir marcar ao **sábado**, avisando quem marca de que se
+trata de um sábado (por norma não se vacina nesse dia) e limitando as
+marcações desse dia a **09:30–12:00** e **15:00–17:00**; mais as recomendações
+anteriores (cliente separado, testes de interface, respostas mais leves).
+
+### Sábado com períodos próprios (servidor)
+`config.json` ganhou quatro campos — `sabadoInicio`/`sabadoFim` e
+`sabadoInicio2`/`sabadoFim2` — por omissão **09:30–12:00** e **15:00–17:00**,
+validados como os restantes períodos (se ficarem sem slots, volta-se ao
+defeito). `src/config.js` exporta `gerarHorasSabado(cfg)` (a par de
+`gerarHoras`) e `servidor.js` passa a gerá-las, injetando-as no contexto da
+API (`horasSabado`) e anunciando-as no arranque. Em `src/api.js`, um único
+helper `horasDoDia(data) = diaDaSemana(data) === 6 ? horasSabado : horas`
+valida o dia e a hora em `POST /api/marcacoes` e em `PUT
+/api/marcacoes/:id` (reagendar e deslocar): fora dos períodos de sábado →
+`400` («Hora fora do horário de sábado»); ao **domingo** → `400` («Não é
+possível agendar ao domingo»), antes de qualquer ocupação de hora.
+`mostrarSabado` passou a `true` por omissão (a coluna do sábado aparece, agora
+que marcações são possíveis). `src/util.js` substitui `fimDeSemana(v)` — que
+já não serve para decidir o horário — por `diaDaSemana(v)` (0 = domingo,
+6 = sábado), por partes da data, imune ao fuso.
+
+### Aviso e regras no cliente
+O cliente passou a ter as mesmas regras por dia:
+- `diaDaSemanaISO`, `horasDoDia`, `opcoesHoras` — o seletor de hora mostra só
+  as horas válidas do dia e **recalcula ao mudar a data** (marcar e reagendar);
+- `confirmarDia(data, acao)` — bloqueia o domingo com aviso e, ao sábado, pede
+  **confirmação** com o texto «Está a marcar num SÁBADO: por norma não se
+  vacina ao sábado…», tanto em *Marcar* como ao reagendar;
+- a nota do dia (sábado/domingo) aparece no próprio modal;
+- `celulaDisponivel(data, hora)` — a grelha do calendário deixa as horas fora
+  dos períodos do dia **indisponíveis** (hachuradas, sem clique) e a coluna do
+  sábado anuncia «só 09:30–12:00 · 15:00–17:00».
+
+### Cliente separado do HTML
+O JavaScript que vivia num bloco `<script>` dentro de `public/index.html`
+passou para **`public/app.js`** (transcrição byte a byte do script original,
+confirmada por comparação), carregado com `<script src="/app.js"></script>`.
+Ganhos: `node --check`/CI validam o cliente, o ficheiro é testável e o HTML
+fica só com a marcação e os estilos. O CI passou a verificar `public/app.js`
+em vez de extrair o script do HTML.
+
+### Testes de interface (`testes-cliente.js`)
+Novo ficheiro que executa o **`public/app.js` real** num DOM mínimo (Node
+`vm`, sem browser nem dependências) e verifica comportamento, não só presença
+de cadeias: escape de HTML, dia da semana sem fuso, horário por dia
+(sábado vs. dia útil), opções de hora, células válidas/indisponíveis da grelha,
+nota por dia, `confirmarDia` (domingo bloqueado, sábado com confirmação) e
+`confirmarMarcar` (o domingo não avança, o sábado sem confirmação não avança,
+o sábado confirmado avança, hora fora do período é recusada) — **46
+verificações**. Ligado ao `package.json` (`npm run test:cliente`) e ao CI (passo
+sem servidor, antes da bateria da API).
+
+### Bateria da API: 110 → 124
+Os testes antigos que exigiam «sábado recusado» foram substituídos pela regra
+nova: `/api/horas` devolve `horasSabado` (com 09:30, 12:00, 15:00 e 17:00 e
+sem 08:30, 14:30 e 17:30); marcação ao sábado aceite às 10:00 e às 16:00;
+recusada às 08:30, 13:00 e 17:30; reagendamento para sábado fora dos períodos
+recusado; domingo recusado. A secção `[Interface]` passou a ler o cliente de
+`/app.js` (e não do HTML) e a verificar as novas regras de sábado.
+
+### Outras recomendações aplicadas
+- `GET /api/dados?versao=<atual>` responde `304` **sem corpo** (`res.end()`
+em vez de um JSON vazio) — o poll de 5 s deixa de transportar carga inútil;
+- `/api/estado`, `/api/dados`, `/api/horas` e todas as gravações devolvem
+também `horasSabado`, para o cliente não ter de inferir horários.
+
+Verificação: `node --check` em servidor, cliente, `src/*.js` e testes; testes
+de interface **46/46**; bateria da API **124/124** com `TZ=Europe/Lisbon`
+(total **170**).
+
+## 2026-09-30 — Auditoria de interface e endurecimento
+
+Nova leitura integral do código (servidor + cliente) contra uma cópia limpa do
+projeto, com a bateria a correr. A bateria passava (103 → **110
+verificações**), mas a auditoria encontrou defeitos no cliente que os testes
+anteriores não podiam detetar: só verificavam a presença de cadeias no HTML,
+nunca executavam o JavaScript da página.
+
+### P0 — Calendário semanal rebentava com a configuração por omissão
+Em `renderCal`, o rótulo da semana fazia `fmtData(dias[5])`; com
+`mostrarSabado: false` (omissão) a lista só tem 5 dias e `dias[5]` é
+`undefined` → `TypeError` em cada `renderTudo()`. Efeito visível: a grelha
+nunca aparecia, o indicador passava a «sem ligação» a cada sincronização de 5 s
+(a exceção era apanhada pelo `catch` do `sincronizar`) e os indicadores
+deixavam de atualizar após gravar. Corrigido para `dias[dias.length-1]`, com
+verificação de regressão na bateria.
+
+### P1 — «Guardar» a pasta de backup nunca funcionava
+`guardarBackupCfg()` chamava `mutacao("/api/config", …)` sem método; a rota é
+`PUT` e o pedido saía como `POST` → `404`. Corrigido (passa `"PUT"`), com
+regressão na bateria. O mesmo defeito existia no retry da justificação em
+conflito de horário (`api(rota,c2)` sem método — o `PUT /api/marcacoes/:id`
+morria em `404`); corrigido para `api(rota,c2,metodo)`.
+
+### P1 — Sincronização automática morria após F5
+O cookie de sessão é `HttpOnly` e por isso não aparece em `document.cookie`; a
+guarda `if(!token&&document.cookie.indexOf("sessao=")<0)return;` fazia o
+`sincronizar()` (a cada 5 s) sair sem pedir nada depois de recuperar a sessão
+pelo cookie. Passou a usar a flag `sessaoAtiva`, ativada no login e na
+recuperação de sessão.
+
+### P1 — «Fechar sessão» podia não fechar
+`sair()` disparava o `logout` sem esperar e recarregava logo a página; a
+navegação podia cancelar o pedido, o cookie ficava válido e a página
+recuperava a sessão. Passou a aguardar a resposta (`await`) antes do reload.
+
+### P2 — Grelha do calendário sem colunas
+`.cal-grelha{display:grid}` sem `grid-template-columns` coloca cada célula
+numa linha própria (uma única coluna): a grelha era desenhada empilhada. O
+`renderCal` passa a definir `grid-template-columns` (coluna das horas + 5/6
+dias).
+
+### P2 — Cópia de segurança podia descartar utentes sem contacto
+No `restaurar.js`, a validação exigia contacto não vazio, mas o contacto é
+opcional no schema do servidor — uma cópia com utentes sem contacto perdia-os
+em silêncio. Passou a aceitar contacto vazio (como `armazenamento.js`) e os
+avisos de registos ignorados são agora impressos **antes** da confirmação.
+
+### P2 — Edição com «justificada» sem motivo
+`PUT /api/marcacoes/:id` aceitava `justificada:true` sem `motivo` quando não
+era um reagendamento (POST e reagendar já recusavam). Passou a `400` nas duas
+vias, com verificação de regressão.
+
+### P2 — Outros
+- `servidor.js` valida a porta indicada (antes, `node servidor.js abc`
+  rebentava com `listen(NaN)`) e aceita também `PORT` (além de `PORTA`).
+- `abrirEstadoUtente` deixou de rebentar quando o utente do conflito de
+  duplicado ainda não está na lista local (sincroniza e avisa).
+- Mudar de semana passou a atualizar também os contadores semanais
+  (`renderStats`), que ficavam na semana anterior.
+- Bateria: o teste de «validação de schema na carga» era vacuoso — relia o
+  ficheiro original que acabara de ser restaurado, não o resultado validado.
+  Passou a chamar `carregarDados()` diretamente, que é o que valida em memória.
+- Documentação: README (contagem de testes, 2.ª–6.ª, duplicação «Sem CORS»,
+  rotas em falta), INSTALL.md (a pasta `src/` tem de ser substituída nas
+  atualizações e consta da lista de ficheiros), OPERACAO.md (local correto da
+  configuração de backup).
+
+Verificação: `node --check` em todos os ficheiros (incl. o script extraído de
+`public/index.html`, agora também no CI), bateria **110/110**, `renderCal`
+executado em DOM mínimo nos dois modos (5 e 6 dias) e restauro de uma cópia
+com utente sem contacto (fica incluído, com aviso dos registos inválidos).
+
 ## 2026-09-29 — Correções de auditoria e integração (commits `595ba9d`, `ca378e1`)
 
-Auditoria independente ao código publicadо (leitura integral + reprodução de
+Auditoria independente ao código publicado (leitura integral + reprodução de
 cada suspeita contra um servidor a correr) encontrou três defeitos. As correções
 foram feitas EM PARALELO por duas vias — `595ba9d` (a partir do relatório de
 auditoria) e `ca378e1` (a auditoria, com testes de regressão) — e este último

@@ -77,14 +77,13 @@ function chaveUtente(nome, contacto) {
 
 const ESTADOS = ["agendado", "administrado", "faltou", "cancelado"];
 
-/* fim de semana: 0 = domingo, 6 = sábado — nunca por toISOString() (fuso) */
-function fimDeSemana(v) {
+/* dia da semana: 0 = domingo, 6 = sábado — nunca por toISOString() (fuso) */
+function diaDaSemana(v) {
   const [a, m, d] = v.split("-").map(Number);
-  const dia = new Date(a, m - 1, d).getDay();
-  return dia === 0 || dia === 6;
+  return new Date(a, m - 1, d).getDay();
 }
 const OCUPAM = ["agendado", "administrado"];   // estados que bloqueiam o horário
 
 function agora() { return new Date().toISOString(); }
 
-module.exports = { RAIZ, logOp, lerJSONcBOM, validarHoraTexto, validarData, fimDeSemana, normalizarVac, normalizarSlots, chaveUtente, ESTADOS, OCUPAM, agora };
+module.exports = { RAIZ, logOp, lerJSONcBOM, validarHoraTexto, validarData, diaDaSemana, normalizarVac, normalizarSlots, chaveUtente, ESTADOS, OCUPAM, agora };

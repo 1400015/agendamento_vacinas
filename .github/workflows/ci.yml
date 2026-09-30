@@ -18,13 +18,17 @@ jobs:
           node --check servidor.js
           node --check restaurar.js
           node --check testes.js
+          node --check testes-cliente.js
+          node --check public/app.js
           for f in src/*.js; do node --check "$f"; done
+      - name: Testes de interface do cliente (sem servidor)
+        run: node testes-cliente.js
       - name: Arrancar servidor de teste
         run: |
           node servidor.js 18090 &
           sleep 2
           npx --yes wait-on http://localhost:18090/api/estado --timeout 15000 || true
-      - name: Bateria de testes
+      - name: Bateria de testes (API)
         run: node testes.js
       - name: Parar servidor
         if: always()

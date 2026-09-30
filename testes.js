@@ -263,8 +263,10 @@ function ok(nome, cond) {
   // arrancar uma instância curta: ela carrega os dados corrompidos, valida e
   // persiste o resultado saneado antes de a matarmos pelo timeout
   const srvBorda = require("child_process").spawnSync(process.execPath, ["servidor.js", "18098"], { encoding: "utf8", timeout: 6000 });
+  // a validação é feita em memória e o ficheiro no disco não é reescrito no
+  // arranque: testar via carregarDados() é o que verifica o saneamento a sério
+  const saneado = require("./src/armazenamento").carregarDados();
   fsBorda.writeFileSync("dados.json", dadosAtuais);
-  const saneado = JSON.parse(fsBorda.readFileSync("dados.json", "utf8"));
   ok("registo sem nome/sem id ignorado no arranque", !saneado.utentes.some(u => u.id === "x1") && !saneado.utentes.some(u => u.nome === "Sem ID"));
   ok("marcação órfã e com data inválida ignoradas no arranque", !saneado.marcacoes.some(m => m.id === "m1") && !saneado.marcacoes.some(m => m.id === "m2"));
   ok("dados válidos intactos após saneamento", saneado.utentes.some(u => u.id === idBorda));
@@ -307,10 +309,31 @@ function ok(nome, cond) {
   ok("estado:null recusado (400) — nunca corrompe o registo", r.s === 400);
   r = await api("/api/marcacoes/" + dupBase.id, { baseVersao: base, rev: dupBase.rev, reagendar: true, novaData: "2099-09-28", novaHora: "10:00", justificada: true }, "PUT");
   ok("reagendar justificado sem motivo recusado (400) — coerente com POST", r.s === 400);
+  r = await api("/api/marcacoes/" + dupBase.id, { baseVersao: base, rev: dupBase.rev, justificada: true }, "PUT");
+  ok("edição com justificada sem motivo recusada (400) — coerente com POST/reagendar", r.s === 400);
+  /* ---- sábado: períodos próprios 09:30–12:00 e 15:00–17:00 ---- */
+  console.log("\n[Sábado e domingo]");
+  const horasSab = (await api("/api/horas")).d.horasSabado;
+  ok("/api/horas devolve os períodos de sábado", Array.isArray(horasSab) && horasSab.includes("09:30") && horasSab.includes("12:00") && horasSab.includes("15:00") && horasSab.includes("17:00"));
+  ok("horário de sábado não inclui as horas de dia útil de fora", !horasSab.includes("08:30") && !horasSab.includes("14:30") && !horasSab.includes("17:30"));
   r = await api("/api/marcacoes", { baseVersao: base, utenteId: maria.id, data: "2099-10-03", hora: "10:00", vacinas: ["G"] });
-  ok("marcação ao sábado recusada (só dias úteis)", r.s === 400);
+  ok("marcação ao sábado aceite no período 09:30–12:00", r.s === 200);
+  if (r.s === 200) base = r.d.versao;
+  r = await api("/api/marcacoes", { baseVersao: base, utenteId: maria.id, data: "2099-10-03", hora: "16:00", vacinas: ["G"] });
+  ok("marcação ao sábado aceite no período 15:00–17:00", r.s === 200);
+  if (r.s === 200) base = r.d.versao;
+  r = await api("/api/marcacoes", { baseVersao: base, utenteId: maria.id, data: "2099-10-03", hora: "08:30", vacinas: ["G"] });
+  ok("sábado antes das 09:30 recusado", r.s === 400);
+  r = await api("/api/marcacoes", { baseVersao: base, utenteId: maria.id, data: "2099-10-03", hora: "13:00", vacinas: ["G"] });
+  ok("sábado na pausa (12:00–15:00) recusado", r.s === 400);
+  r = await api("/api/marcacoes", { baseVersao: base, utenteId: maria.id, data: "2099-10-03", hora: "17:30", vacinas: ["G"] });
+  ok("sábado depois das 17:00 recusado", r.s === 400);
   r = await api("/api/marcacoes", { baseVersao: base, utenteId: maria.id, data: "2099-10-04", hora: "10:00", vacinas: ["G"] });
-  ok("marcação ao domingo recusada (só dias úteis)", r.s === 400);
+  ok("marcação ao domingo recusada", r.s === 400);
+  const alvoSab = (await api("/api/dados")).d.marcacoes.find(m => m.utenteId === maria.id && m.estado === "agendado");
+  r = await api("/api/marcacoes/" + alvoSab.id, { baseVersao: base, rev: alvoSab.rev, reagendar: true, novaData: "2099-10-03", novaHora: "13:00" }, "PUT");
+  ok("reagendar para sábado fora dos períodos recusado (400)", r.s === 400);
+
   r = await api("/api/marcacoes", { baseVersao: base, utenteId: maria.id, data: "2099-09-29", hora: "13:00", vacinas: ["G"] });
   ok("hora na pausa de almoço recusada (fora dos períodos)", r.s === 400);
   if (r.s === 200) base = r.d.versao;
@@ -398,23 +421,41 @@ function ok(nome, cond) {
   console.log("\n[Interface]");
   const pg = await fetch(B + "/");
   const html = await pg.text();
+  const pgJs = await fetch(B + "/app.js");
+  const js = await pgJs.text();
   ok("página servida", pg.status === 200);
+  ok("cliente /app.js servido", pgJs.status === 200 && js.length > 1000);
+  ok("index.html carrega o cliente externo (script src=/app.js)", html.includes('src="/app.js"'));
   ok("título correto", html.includes("Farmácia Boavista"));
-  ok("fallback CP1252 presente na importação", html.includes("windows-1252"));
   ok("exportação JSON na interface", html.includes("Exportar dados (JSON)"));
   ok("configuração de backup na interface", html.includes("Testar caminho"));
-  ok("posição exata no conflito (estilo flash)", html.includes("posicaoNaLista"));
-  ok("hora local na auditoria", html.includes("horaLocal"));
-  const semMetodo = html.replace(/,"PUT"\);/g, ");").replace(/null,"DELETE"\);/g, "null);");
+  ok("célula indisponível (sábado) tem estilo próprio", html.includes("cal-celula.indisponivel"));
+  ok("seletor de dia no PDF", html.includes("pdf-dia"));
+  ok("fallback CP1252 presente na importação (cliente)", js.includes("windows-1252"));
+  ok("posição exata no conflito (estilo flash)", js.includes("posicaoNaLista"));
+  ok("hora local na auditoria", js.includes("horaLocal"));
+  const semMetodo = js.replace(/,"PUT"\);/g, ");").replace(/null,"DELETE"\);/g, "null);");
   const rxSemMetodo = new RegExp(String.raw`mutacao("?/api/(utentes|marcacoes)/[^;]*?);\s*\n`, "g");
   const comMetodo = [/mutacao\("[^;]*?"PUT"\);/g, /mutacao\("[^;]*?null,"DELETE"\);/g]
-    .map(rx => (html.match(rx) || []).length);
+    .map(rx => (js.match(rx) || []).length);
   ok("cliente: mutacao() passa método HTTP explícito (regressão POST→404)",
     comMetodo[0] >= 2 && comMetodo[1] >= 2 && !rxSemMetodo.test(semMetodo));
-  ok("cliente: recupera sessão pelo cookie (F5 sem PIN)", html.includes("recuperarSessao"));
-  ok("cliente: setup exige código de arranque", html.includes("codigoArranque"));
-  ok("cliente: rev fresco no conflito de registo", html.includes("d.atual.rev"));
-  ok("cliente: seletor de dia no PDF", html.includes("pdf-dia"));
+  ok("cliente: recupera sessão pelo cookie (F5 sem PIN)", js.includes("recuperarSessao"));
+  ok("cliente: setup exige código de arranque", js.includes("codigoArranque"));
+  ok("cliente: rev fresco no conflito de registo", js.includes("d.atual.rev"));
+  ok("cliente: rótulo da semana usa o último dia visível (regressão com fim de semana escondido)",
+    js.includes("dias[dias.length-1]") && !js.includes("fmtData(dias[5])"));
+  ok("cliente: grelha do calendário define as colunas (regressão coluna única)", js.includes("gridTemplateColumns"));
+  ok("cliente: justificação em conflito mantém o método HTTP (regressão PUT→POST)", js.includes("api(rota,c2,metodo)"));
+  ok("cliente: guardar pasta de backup usa PUT (regressão POST→404)", /mutacao\("\/api\/config"[\s\S]*?"PUT"\)/.test(js));
+  ok("cliente: sincronização usa sessão ativa (cookie HttpOnly não está em document.cookie)",
+    js.includes("sessaoAtiva") && !js.includes('document.cookie.indexOf("sessao=")'));
+  ok("cliente: fechar sessão espera pelo logout antes de recarregar", /await api\("\/api\/logout"/.test(js));
+  ok("cliente: sábado usa o horário próprio (horasDoDia/horasSabado/celulaDisponivel)",
+    js.includes("horasSabado") && js.includes("horasDoDia") && js.includes("celulaDisponivel"));
+  ok("cliente: aviso de que está a marcar num sábado", js.includes("MSG_SABADO") && /SÁBADO/.test(js));
+  ok("cliente: domingo recusado também no cliente", /Não é possível (agendar|marcar) ao domingo/.test(js));
+  ok("cliente: períodos de sábado no cabeçalho da grelha", js.includes("09:30–12:00 · 15:00–17:00"));
 
   console.log("\n════════════════════════════════════════");
   console.log(`  Resultado: ${passou} passaram, ${falhou} falharam`);

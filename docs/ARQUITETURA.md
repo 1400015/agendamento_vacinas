@@ -6,7 +6,7 @@ O servidor é construído em **Node.js puro**, dividido em módulos especializad
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  servidor.js (101 linhas) — Ponto de Entrada                │
+│  servidor.js (106 linhas) — Ponto de Entrada                │
 │  ├─ Setup modules (util, config, armazenamento, autenticacao)
 │  ├─ Carregar dados + config
 │  ├─ Criar listener HTTP
@@ -26,12 +26,12 @@ O servidor é construído em **Node.js puro**, dividido em módulos especializad
 ┌──────────────────────────────┬──────────────────────────────┐
 │  Módulos Transversais        │  Módulos de Negócio          │
 ├──────────────────────────────┼──────────────────────────────┤
-│ • util.js (84 linhas)        │ • api.js (332 linhas)        │
+│ • util.js (89 linhas)        │ • api.js (349 linhas)        │
 │   - Validações               │   - Rotas HTTP               │
 │   - Normalizações            │   - Lógica de negócio        │
 │   - Log operacional          │   - Concorrência             │
 │                              │   - Conflitos                │
-│ • autenticacao.js (124 linhas)                              │
+│ • autenticacao.js (123 linhas)                              │
 │   - PIN (PBKDF2+AES-256-GCM)                                │
 │   - Código de arranque                                      │
 │   - Sessões (8h)                                            │
@@ -42,12 +42,12 @@ O servidor é construído em **Node.js puro**, dividido em módulos especializad
 │   - Persistência atómica                                    │
 │   - Proteção contra corrupção                               │
 │                              │                               │
-│ • config.js (66 linhas)                                     │
+│ • config.js (89 linhas)                                     │
 │   - Carregamento com validação                              │
 │   - Config.json corrompido → preserva + pára               │
 │   - Geração de horários                                     │
 │                              │                               │
-│ • backup.js (64 linhas)                                     │
+│ • backup.js (63 linhas)                                     │
 │   - Cópia diária rotativa                                   │
 │   - Teste de pasta de backup                                │
 │   - Injeção de dependências (evita ciclos)                  │
@@ -110,7 +110,7 @@ O servidor é construído em **Node.js puro**, dividido em módulos especializad
 
 ## Módulos — Responsabilidades
 
-### `servidor.js` (101 linhas) — Orquestrador
+### `servidor.js` (106 linhas) — Orquestrador
 
 **Responsabilidade:** Setup e listeners HTTP, nada de lógica.
 
@@ -130,14 +130,15 @@ O servidor é construído em **Node.js puro**, dividido em módulos especializad
 {
   dados,              // estado completo em memória
   cfg,                // config.json (horários, maxPorHora, etc.)
-  horas,              // array de horas válidas
+  horas,              // horas válidas nos dias úteis
+  horasSabado,        // horas válidas ao sábado (períodos próprios, mais curtos)
   persistir,          // função para escrever dados.json
   registar,           // função para auditoria
   backupAuto          // função para fazer backup automático
 }
 ```
 
-### `util.js` (84 linhas) — Funções Transversais
+### `util.js` (89 linhas) — Funções Transversais
 
 **Responsabilidades:**
 - **Validações:** `validarData()`, `validarHoraTexto()`
@@ -153,7 +154,7 @@ const data = U.validarData("2025-09-22");  // → "2025-09-22" ou null
 U.logOp("ERRO", "backup falhou: Permission denied");
 ```
 
-### `autenticacao.js` (124 linhas) — PIN, Sessões, Rate-Limit
+### `autenticacao.js` (123 linhas) — PIN, Sessões, Rate-Limit
 
 **Responsabilidades:**
 
@@ -199,7 +200,7 @@ U.logOp("ERRO", "backup falhou: Permission denied");
    - Rename atómico (dados.json.tmp → dados.json)
    - Protege contra falha de energia ou crash
 
-### `config.js` (66 linhas) — Configuração e Horários
+### `config.js` (89 linhas) — Configuração e Horários
 
 **Responsabilidades:**
 
@@ -216,17 +217,25 @@ U.logOp("ERRO", "backup falhou: Permission denied");
      horaFim: "12:00",           // fim da manhã
      horaInicio2: "14:30",      // início da tarde
      horaFim2: "19:30",         // fim da tarde
+     sabadoInicio: "09:30",      // períodos PRÓPRIOS do sábado (mais curtos)
+     sabadoFim: "12:00",
+     sabadoInicio2: "15:00",
+     sabadoFim2: "17:00",
      intervaloMin: 30,           // 15, 30 ou 60 minutos
-     mostrarSabado: false,       // grelha de 2.ª a 6.ª; fim de semana nunca aceita marcações
+     mostrarSabado: true,        // mostra a coluna do sábado na grelha
      pastaBackup: ""             // pasta de backup (rede ou local)
    }
    ```
+   Fora dos períodos de sábado o servidor recusa marcações (`400`); o domingo
+   não tem horário nenhum. Os períodos de sábado têm validação própria (se
+   ficarem sem slots válidos, volta-se a 09:30–12:00 / 15:00–17:00).
 
 3. **Geração de Horários**
    - `gerarHoras(cfg)` — Array de strings dos dois períodos ["08:30", "09:00", …, "12:00", "14:30", …, "19:30"]
-   - Usado na validação de cada marcação
+   - `gerarHorasSabado(cfg)` — o mesmo para os dois períodos do sábado (por omissão ["09:30", …, "12:00", "15:00", …, "17:00"])
+   - `api.js` usa `horasDoDia(data)` (sábado → `horasSabado`, restantes → `horas`) na validação de cada marcação e reagendamento
 
-### `backup.js` (64 linhas) — Cópia Diária Rotativa
+### `backup.js` (63 linhas) — Cópia Diária Rotativa
 
 **Responsabilidades:**
 
@@ -252,7 +261,7 @@ U.logOp("ERRO", "backup falhou: Permission denied");
    - Retorna `{ok, pasta, erro}`
    - Usado pela interface para validar antes de configurar
 
-### `api.js` (332 linhas) — Lógica de Negócio
+### `api.js` (349 linhas) — Lógica de Negócio
 
 **Responsabilidades:** Todas as rotas HTTP e regras de negócio.
 
@@ -285,6 +294,27 @@ U.logOp("ERRO", "backup falhou: Permission denied");
 
 ---
 
+### `public/index.html` + `public/app.js` — Cliente (interface)
+
+O cliente é servido em dois ficheiros: a marcação e os estilos em
+`index.html` e o comportamento em `app.js` (carregado com
+`<script src="/app.js">`). O JavaScript da página passa assim a ser
+validável (`node --check`), testável (`testes-cliente.js`, em DOM mínimo) e
+legível fora do meio do HTML.
+
+Regras por dia aplicadas no cliente (a par da validação do servidor):
+
+- `diaDaSemanaISO(data)` — 0 = domingo … 6 = sábado, por partes da data
+  (imune ao fuso, como `util.js`);
+- `horasDoDia(data)` — horário normal (`horas`) ou o do sábado (`horasSabado`,
+  recebido em `/api/dados`, `/api/estado` e `/api/horas`);
+- `celulaDisponivel(data, hora)` — usado pela grelha: fora dos períodos do dia
+  a célula fica indisponível (não clicável);
+- `confirmarDia(data, acao)` — bloqueia o domingo e pede confirmação no sábado
+  («por norma não se vacina ao sábado»), tanto ao marcar como ao reagendar.
+
+---
+
 ## Padrões de Design
 
 ### 1. **Contexto Injetado**
@@ -292,7 +322,7 @@ Em vez de módulos se importarem entre si (ciclos), `servidor.js` cria um contex
 
 ```javascript
 const ctx = {
-  dados, cfg, horas, persistir, registar, backupAuto
+  dados, cfg, horas, horasSabado, persistir, registar, backupAuto
 };
 const api = criarApi(ctx);
 // Depois: api(req, res, corpo)

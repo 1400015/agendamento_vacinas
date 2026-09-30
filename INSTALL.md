@@ -67,7 +67,10 @@ A pasta do projeto deve conter, no mínimo:
 
 ```
 servidor.js
+src/              (módulos do servidor)
 public/index.html
+public/app.js     (cliente: interface e regras de marcação)
+restaurar.js
 README.md
 ```
 
@@ -235,7 +238,7 @@ Nos postos da frente: http://192.168.x.x:8080
 Testar no próprio servidor: `http://localhost:8080`.
 Parar com `Ctrl + C`.
 
-Outra porta: `node servidor.js 9090` (ou env `PORTA`).
+Outra porta: `node servidor.js 9090` (ou env `PORTA`/`PORT`).
 
 Descobrir o endereço IP do servidor (para usar nos postos):
 
@@ -328,7 +331,8 @@ Para atualizar o código sem perder dados:
 
 1. Parar o servidor (Ctrl+C / `systemctl stop farmacia-vacinas`);
 2. Copiar `dados.json` para um local seguro (ver secção seguinte);
-3. Substituir `servidor.js` e `public/index.html` pela nova versão;
+3. Substituir `servidor.js`, a pasta `src/`, a pasta `public/`
+   (`index.html` + `app.js`) e `restaurar.js` pela nova versão;
 4. Devolver `dados.json` à pasta (se entretanto removido);
 5. Arrancar de novo o servidor.
 

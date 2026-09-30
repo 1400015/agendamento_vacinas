@@ -25,12 +25,17 @@ const A = require("./src/autenticacao");
 const BK = require("./src/backup");
 const { CAB_SEGURANCA, criarApi } = require("./src/api");
 
-const PORTA = Number(process.argv[2] || process.env.PORTA || 8080);
+const PORTA = Number(process.argv[2] || process.env.PORTA || process.env.PORT || 8080);
+if (!Number.isInteger(PORTA) || PORTA < 1 || PORTA > 65535) {
+  console.error("Porta inválida — indique um número entre 1 e 65535, ex.:  node servidor.js 9090");
+  process.exit(1);
+}
 const PASTA_PUBLICA = path.join(U.RAIZ, "public");
 
 /* ----- modelo e contexto ----- */
 const cfg = CFG_MOD.carregarConfig();
 const horas = CFG_MOD.gerarHoras(cfg);
+const horasSabado = CFG_MOD.gerarHorasSabado(cfg);
 const dados = ARM.carregarDados();
 BK.usarFicheiroDados(ARM.FICHEIRO_DADOS);
 
@@ -39,7 +44,7 @@ function registar(posto, acao, alvo, detalhe) {
   if (dados.historico.length > 5000) dados.historico.splice(0, dados.historico.length - 5000);
 }
 const backupAuto = (forcar) => BK.backupAuto(dados, cfg, ARM.persistir, registar, forcar);
-const api = criarApi({ dados, cfg, horas, persistir: ARM.persistir, registar, backupAuto });
+const api = criarApi({ dados, cfg, horas, horasSabado, persistir: ARM.persistir, registar, backupAuto });
 
 /* ----- primeiro arranque: código de arranque ----- */
 if (!A.pinDefinido()) {
@@ -91,6 +96,7 @@ servidor.listen(PORTA, "0.0.0.0", () => {
   console.log("═".repeat(64));
   console.log("  Central de Marcações de Vacinas — Farmácia Boavista");
   console.log(`  Servidor na porta ${PORTA}  ·  horário ${cfg.horaInicio}–${cfg.horaFim} e ${cfg.horaInicio2}–${cfg.horaFim2} (cada ${cfg.intervaloMin} min)`);
+  console.log(`  Sábado: ${cfg.sabadoInicio}–${cfg.sabadoFim} e ${cfg.sabadoInicio2}–${cfg.sabadoFim2} — marcações de sábado só nestes períodos`);
   console.log(`  Máx. por hora: ${cfg.maxPorHora} (exceção justificada com motivo)`);
   console.log(`  Neste computador:  http://localhost:${PORTA}`);
   (ips.length ? ips : ["<ip-do-servidor>"]).forEach(ip => console.log(`  Nos postos da frente: http://${ip}:${PORTA}`));
