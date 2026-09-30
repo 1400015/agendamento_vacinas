@@ -204,18 +204,20 @@ programadas vs. administradas e as justificações.
 ```bash
 node testes-cliente.js     # interface (cliente em DOM mínimo): 46 verificações
 node servidor.js 18090     # numa janela (para a bateria da API)
-node testes.js             # noutra: 124 verificações
+node testes.js             # noutra: 136 verificações
 ```
 
 Cobrem: PIN/sessões (incl. rate-limit), validações, duplicados na importação,
 sobreposições e justificações, `maxPorHora`, estados a libertar horário,
 reagendamento, conflitos de versão e de registo, dois postos em simultâneo,
-eliminações, auditoria, validação de schema na carga, backup/exportação,
-regras de **sábado** (períodos próprios) e **domingo** (recusado) e as
-regressões do cliente (métodos HTTP, sincronização com cookie, grelha do
-calendário, código de arranque). Os `testes-cliente.js` executam o `app.js`
-real e verificam o aviso de sábado, a recusa do domingo, o horário por dia e
-as células indisponíveis da grelha.
+eliminações, auditoria, validação de schema na carga, `config.json` inválida
+(avisa e volta aos defeitos, corrigindo o ficheiro) ou ilegível (preserva e não
+arranca), injeção do caminho de dados no backup, backup/exportação, regras de
+**sábado** (períodos próprios) e **domingo** (recusado) e as regressões do
+cliente (métodos HTTP, sincronização com cookie, grelha do calendário, código
+de arranque). Os `testes-cliente.js` executam o `app.js` real (num DOM mínimo)
+e verificam o aviso de sábado, a recusa do domingo, o horário por dia e as
+células indisponíveis da grelha.
 
 ## 12. Configuração (config.json)
 

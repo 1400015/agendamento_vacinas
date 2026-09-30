@@ -1,5 +1,41 @@
 # Alterações
 
+## 2026-09-30 (3) — Fechar o checklist de testes (config inválida e injeção do backup)
+
+Estavam dois itens por fazer no «Checklist de Testes» de `docs/ARQUITETURA.md`.
+Ambos ficam cobertos por testes e o checklist passa a refletir o que o sistema
+faz de facto.
+
+### `config.json` com valores inválidos
+O item estava escrito como «preserva + pára», o que **não** corresponde ao
+desenho: só a config **ilegível** é preservada e trava o arranque; uma config
+legível mas fora do esperado deve ser corrigida campo a campo para não impedir
+o serviço. Passou a haver uma verificação que arranca um servidor de teste com
+`config.json` cheio de lixo (`horaInicio: "25:00"`, `horaFim: "99:99"`,
+`maxPorHora: "muitos"`, `intervaloMin: 7`, períodos de sábado inválidos,
+`pastaBackup` com espaços) e confirma que: o servidor **arranca**, **avisa** em
+log/stderr, volta aos **defeitos** por campo (08:30–12:00 / 14:30–19:30,
+30 min, 2 por hora, sábado 09:30–12:00 / 15:00–17:00), **mantém** os valores
+válidos (`mostrarSabado`), **normaliza** a pasta de backup (trim) e **reescreve
+o ficheiro já corrigido** no disco. O texto do checklist foi corrigido e o
+«Tratamento de Erros» de `ARQUITETURA.md` separa agora os dois casos (ilegível
+→ preserva + pára; valores inválidos → avisa + defeitos + reescreve).
+
+### Injeção do caminho de dados no backup
+`backup.js` recebe o caminho de `dados.json` por `usarFicheiroDados()` (para
+não criar um ciclo com `armazenamento.js`), mas só `usarFicheiroDados` estava
+exportado — `persistirDados()` era documentado na arquitetura e não era
+verificável. Passou a ser exportado e o teste verifica a injeção pelo
+**efeito**, não pelo getter: cria um ficheiro de origem com `versao: 7`, regista-o,
+corre `backupAuto()` e confirma que a cópia é feita **a partir desse ficheiro**
+(e não do `dados.json` por omissão), com o nome
+`dados.backup-AAAA-MM-DD.json` e entrada na auditoria — repondo depois o
+caminho real do processo.
+
+### Verificação
+Bateria da API: 124 → **136 verificações**; testes de interface:
+**46/46** (total **182**), com `TZ=Europe/Lisbon`.
+
 ## 2026-09-30 (2) — Marcação ao sábado (com aviso) e testes de interface
 
 Pedido: passar a permitir marcar ao **sábado**, avisando quem marca de que se

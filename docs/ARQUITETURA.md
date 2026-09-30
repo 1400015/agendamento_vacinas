@@ -271,9 +271,9 @@ U.logOp("ERRO", "backup falhou: Permission denied");
 - `POST /api/login` — Login com PIN (rate-limit)
 
 #### Rotas Autenticadas
-- `GET /api/dados` — Estado completo (com 304 se versão igual)
+- `GET /api/dados` — Estado completo (com 304 sem corpo se a versão for igual)
 - `GET /api/historico` — Últimas 500 operações (auditoria)
-- `GET /api/horas` — Horários válidos
+- `GET /api/horas` — Horários válidos (`horas` para dias úteis e `horasSabado`)
 
 #### Utentes
 - `POST /api/utentes` — Criar
@@ -282,7 +282,7 @@ U.logOp("ERRO", "backup falhou: Permission denied");
 - `POST /api/importar` — Batch import de TXT
 
 #### Marcações
-- `POST /api/marcacoes` — Criar (com verificação de overlap)
+- `POST /api/marcacoes` — Criar (valida o dia/hora pelo horário do dia — sábado reduzido — e verifica overlap)
 - `PUT /api/marcacoes/:id` — Alterar estado / reagendar
 - `DELETE /api/marcacoes/:id` — Apagar
 
@@ -414,10 +414,13 @@ dados = {
 
 2. **config.json ilegível**
    - Preservar como `config.json.corrompida-...`
-   - Usar defaults
-   - Parar servidor
+   - Parar servidor (nunca regravar por cima da configuração do utilizador)
 
-3. **Registo inválido durante carregamento**
+3. **config.json com valores inválidos** (legível, mas fora do esperado)
+   - Avisar em log + stderr e usar o defeito de cada campo
+   - Reescrever já o ficheiro corrigido — não trava o arranque
+
+4. **Registo inválido durante carregamento**
    - Normalizar silenciosamente
    - Avisar em log + stderr
    - Continuar carregamento
@@ -443,5 +446,7 @@ Para validar a arquitetura:
 - [x] Teste: datas em DST (março-outubro Portugal) são aceites
 - [x] Teste: reagendamento liberta a hora antiga (não deixa fantasma)
 - [x] Teste: `restaurar.js` valida schema antes de restaurar
-- [ ] Teste: config.json corrompido com valores inválidos → preserva + pára
-- [ ] Teste: backup.js registra caminho correto via `usarFicheiroDados()`
+- [x] Teste: marcação ao sábado só nos períodos 09:30–12:00 / 15:00–17:00 e domingo recusado (400)
+- [x] Teste: config.json inválida → avisa, volta aos defeitos e corrige o ficheiro; ilegível → preserva e trava o arranque
+- [x] Teste: backup.js copia o ficheiro de dados injetado por `usarFicheiroDados()` (não o `dados.json` por omissão)
+- [x] Testes de interface: `public/app.js` executado em DOM mínimo (46 verificações)

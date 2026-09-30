@@ -359,6 +359,53 @@ function ok(nome, cond) {
   const pgQuery = await fetch(B + "/index.html?x=1");
   ok("estático com query string servido (sem 404)", pgQuery.status === 200);
 
+  /* ---- config.json legível mas com valores inválidos: avisa e volta aos
+     defeitos, corrigindo o ficheiro (não pára: o servidor continua a poder
+     servir; só a config ILEGÍVEL é que é preservada e trava o arranque) ---- */
+  console.log("\n[Config com valores inválidos]");
+  fsCfg.writeFileSync("config.json", JSON.stringify({
+    maxPorHora: "muitos", horaInicio: "25:00", horaFim: "99:99", horaInicio2: "", horaFim2: null,
+    sabadoInicio: "aa:bb", sabadoFim2: "17:00", intervaloMin: 7, mostrarSabado: false, pastaBackup: "  /tmp/backup-invalida  "
+  }));
+  const arrancaInv = require("child_process").spawnSync(process.execPath, ["servidor.js", "18097"], { encoding: "utf8", timeout: 3000 });
+  let cfgCorrigida = {};
+  try { cfgCorrigida = JSON.parse(fsCfg.readFileSync("config.json", "utf8")); } catch (e) {}
+  fsCfg.writeFileSync("config.json", cfgBak);
+  ok("config com valores inválidos não impede o arranque", /Servidor na porta 18097/.test(arrancaInv.stdout));
+  ok("avisa quais os campos inválidos encontrados", /AVISO/.test(arrancaInv.stderr + arrancaInv.stdout));
+  ok("horas inválidas voltam ao defeito (08:30–12:00 e 14:30–19:30)",
+    cfgCorrigida.horaInicio === "08:30" && cfgCorrigida.horaFim === "12:00" && cfgCorrigida.horaInicio2 === "14:30" && cfgCorrigida.horaFim2 === "19:30");
+  ok("intervaloMin inválido volta a 30", cfgCorrigida.intervaloMin === 30);
+  ok("maxPorHora inválido volta a 2", cfgCorrigida.maxPorHora === 2);
+  ok("períodos de sábado inválidos voltam ao defeito (09:30–12:00 / 15:00–17:00)",
+    cfgCorrigida.sabadoInicio === "09:30" && cfgCorrigida.sabadoFim === "12:00" && cfgCorrigida.sabadoInicio2 === "15:00" && cfgCorrigida.sabadoFim2 === "17:00");
+  ok("valores válidos mantêm-se (mostrarSabado: false)", cfgCorrigida.mostrarSabado === false);
+  ok("ficheiro corrigido no disco e pasta de backup normalizada", cfgCorrigida.pastaBackup === "/tmp/backup-invalida");
+
+  /* ---- backup.js: o caminho de leitura é INJETADO por usarFicheiroDados()
+     (evita o ciclo backup→armazenamento); a cópia tem de vir do ficheiro
+     registado, não do dados.json por omissão ---- */
+  console.log("\n[backup.js: caminho de dados injetado]");
+  const BKL = require("./src/backup");
+  const ARML = require("./src/armazenamento");
+  const pathBk = require("path"), fsBk = require("fs");
+  const pastaBk = "/tmp/vac-backup-teste";
+  fsBk.rmSync(pastaBk, { recursive: true, force: true });
+  fsBk.mkdirSync(pastaBk, { recursive: true });
+  const dadosFonte = pathBk.join(pastaBk, "origem-dados.json");
+  fsBk.writeFileSync(dadosFonte, JSON.stringify({ versao: 7, utentes: [{ id: "u1", nome: "Origem" }], marcacoes: [], historico: [] }));
+  BKL.usarFicheiroDados(dadosFonte);
+  ok("persistirDados() devolve o caminho injetado", BKL.persistirDados() === dadosFonte);
+  const acoesBk = [];
+  const rBk = BKL.backupAuto({}, { pastaBackup: pastaBk }, () => {}, (_posto, acao) => acoesBk.push(acao), true);
+  ok("backup automático copia o ficheiro injetado", rBk.ok === true && !!rBk.ficheiro && fsBk.existsSync(rBk.ficheiro));
+  ok("cópia é fiel ao ficheiro injetado (e não ao dados.json por omissão)",
+    (() => { try { return JSON.parse(fsBk.readFileSync(rBk.ficheiro, "utf8")).versao === 7; } catch (e) { return false; } })());
+  ok("cópia registada na auditoria com o nome esperado",
+    acoesBk.includes("backup") && /dados\.backup-\d{4}-\d{2}-\d{2}\.json$/.test(rBk.ficheiro || ""));
+  BKL.usarFicheiroDados(ARML.FICHEIRO_DADOS);   // repor o caminho real do processo de testes
+  fsBk.rmSync(pastaBk, { recursive: true, force: true });
+
   /* ---- corpo demasiado grande responde 413 (não pendura o cliente) ---- */
   console.log("\n[Corpo demasiado grande]");
   const grande = await fetch(B + "/api/utentes", {

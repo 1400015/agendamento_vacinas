@@ -60,4 +60,4 @@ function testarPasta(cfg) {
   }
 }
 
-module.exports = { BACKUP_COPIAS, pastaBackupEfetiva, dataLocalArquivo, backupAuto, testarPasta, usarFicheiroDados };
+module.exports = { BACKUP_COPIAS, pastaBackupEfetiva, dataLocalArquivo, backupAuto, testarPasta, usarFicheiroDados, persistirDados };
