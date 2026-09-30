@@ -91,6 +91,8 @@ const servidor = http.createServer((req, res) => {
   servirFicheiro(res, path.join(PASTA_PUBLICA, path.normalize(rotaEstatica).replace(/^([.][.][/\\])+/g, "")));
 });
 
+servidor.keepAliveTimeout = 60_000;
+servidor.headersTimeout = 65_000;
 servidor.listen(PORTA, "0.0.0.0", () => {
   const ips = Object.values(networkInterfaces()).flat().filter(i => i && i.family === "IPv4" && !i.internal).map(i => i.address);
   console.log("═".repeat(64));
