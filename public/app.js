@@ -244,6 +244,7 @@ async function confirmarMarcar(id){
   const data=val("m-data"),hora=val("m-hora");
   if(!confirmarDia(data,"marcação"))return;
   const horasDia=horasDoDia(data);
+  if(!horasDia.length){alert("Não há horas marcáveis nesse dia.");return;}
   if(!horasDia.includes(hora)){alert(`Hora fora do horário${diaDaSemanaISO(data)===6?" de sábado":""} (${horasDia[0]}–${horasDia[horasDia.length-1]}).`);return;}
   const vac=val("m-vac")==="G+C"?["G","C"]:[val("m-vac")];
   fecharModal();
@@ -278,6 +279,7 @@ async function guardarMarcacao(id,rev,dataAntiga,horaAntiga){
   if(nd!==dataAntiga||nh!==horaAntiga){
     if(!confirmarDia(nd,"reagendamento"))return;
     const horasDia=horasDoDia(nd);
+    if(!horasDia.length){alert("Não há horas marcáveis nesse dia.");return;}
     if(!horasDia.includes(nh)){alert(`Hora fora do horário${diaDaSemanaISO(nd)===6?" de sábado":""} (${horasDia[0]}–${horasDia[horasDia.length-1]}).`);return;}
   }
   const corpo={rev,estado};
@@ -296,10 +298,14 @@ const DIAS=["Segunda","Terça","Quarta","Quinta","Sexta","Sábado"];
 /* Dia/horas válidos: o sábado tem períodos próprios e mais curtos; o domingo não
    tem nenhum. Mesmas regras do servidor (nunca por toISOString: fuso). */
 function diaDaSemanaISO(isoD){const[a,m,d]=String(isoD).split("-").map(Number);return new Date(a,m-1,d).getDay();}
-function horasDoDia(data){return diaDaSemanaISO(data)===6?horasSabado:horas;}
+function diasFechadosDoCfg(){return Array.isArray(config.diasFechados)?config.diasFechados:[];}
+function diaFechado(data){return diasFechadosDoCfg().includes(data);}
+function horasDoDia(data){return diaFechado(data)?[]:(diaDaSemanaISO(data)===6?horasSabado:horas);}
 function opcoesHoras(data,selecionada){return horasDoDia(data).map(h=>`<option ${h===selecionada?"selected":""}>${h}</option>`).join("");}
 const MSG_SABADO="Está a marcar num SÁBADO: por norma não se vacina ao sábado. Só há períodos reduzidos (09:30–12:00 e 15:00–17:00).";
-function notaDoDia(data){const g=diaDaSemanaISO(data);
+function notaDoDia(data){
+  if(diaFechado(data))return"A farmácia está encerrada nesse dia (dia de encerramento) — não há vacinação.";
+  const g=diaDaSemanaISO(data);
   if(g===0)return"Não é possível marcar ao domingo — não há vacinação nesse dia.";
   if(g===6)return MSG_SABADO;
   return"";}
@@ -307,6 +313,7 @@ function notaHtml(id,data){const t=notaDoDia(data);
   return`<p class="mut" id="${id}"${t?"":" hidden"}>${esc(t)}</p>`;}
 /* confirmação do dia: false = bloqueado (domingo) ou o utilizador cancelou */
 function confirmarDia(data,acao){
+  if(diaFechado(data)){alert("A farmácia está encerrada nesse dia (dia de encerramento) — escolha outro dia.");return false;}
   const g=diaDaSemanaISO(data);
   if(g===0){alert("Não é possível agendar ao domingo — não há vacinação nesse dia.");return false;}
   if(g===6)return confirm(MSG_SABADO+"\n\nConfirmar a "+acao+" num sábado?");
@@ -329,7 +336,7 @@ function fmtData(isoStr){const[y,m,d]=isoStr.split("-");return`${d}/${m}/${y}`;}
 
 function renderTudo(){
   if(!document.getElementById("modal").hidden)return;
-  renderStats();renderUtentes();renderCal();renderHistorico();
+  renderStats();renderUtentes();renderCal();renderHistorico();renderConfig();
 }
 
 function renderStats(){
@@ -381,8 +388,9 @@ function renderCal(){
   const ativas=d=>h=>marcacoes.filter(m=>m.data===d&&m.hora===h);
   let html=`<div class="cal-hora"></div>`;
   for(let i=0;i<nDias;i++){const d=new Date(semanaBase);d.setDate(d.getDate()+i);const di=iso(d);
-    html+=`<div class="cal-dia${di===hoje?" hoje":""}">${DIAS[i]}<small>${fmtData(di)}</small>`+
-      (i===5?`<small class="mut">só 09:30–12:00 · 15:00–17:00</small>`:"")+`</div>`;}
+    const fechado=diaFechado(di);
+    html+=`<div class="cal-dia${di===hoje?" hoje":""}${fechado?" fechado":""}">${DIAS[i]}<small>${fmtData(di)}</small>`+
+      (fechado?`<small class="mut">encerrado</small>`:(i===5?`<small class="mut">só 09:30–12:00 · 15:00–17:00</small>`:""))+`</div>`;}
   horas.forEach(h=>{
     html+=`<div class="cal-hora">${h}</div>`;
     for(let i=0;i<nDias;i++){const d=new Date(semanaBase);d.setDate(d.getDate()+i);const di=iso(d);
@@ -423,8 +431,6 @@ function horaLocal(iso){
 }
 function renderHistorico(){
   if(document.getElementById("tab-h").hidden)return;
-  const cfgB=document.getElementById("cfg-backup");
-  if(cfgB&&cfgB.value===""&&config.pastaBackup!==undefined)cfgB.value=config.pastaBackup;
   api("/api/historico").then(r=>{
     if(r.s!==200)return;
     document.getElementById("corpo-historico").innerHTML=
@@ -433,6 +439,21 @@ function renderHistorico(){
 }
 
 /* ============ exportação de dados / backup ============ */
+async function exportarCSV(tipo,desde,ate){
+  const q=new URLSearchParams({tipo:tipo||"marcacoes"});
+  if(desde)q.set("desde",desde);
+  if(ate)q.set("ate",ate);
+  try{
+    const r=await fetch("/api/exportar.csv?"+q.toString(),{headers:token?{"Authorization":"Bearer "+token}:{}});
+    if(r.status!==200){banner("Não foi possível exportar o CSV.",true);return;}
+    const blob=await r.blob();
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(blob);
+    a.download="vacinas-"+(tipo||"marcacoes")+"-"+isoHoje()+".csv";
+    a.click();URL.revokeObjectURL(a.href);
+    banner("CSV exportado"+(tipo==="utentes"?" (utentes)":" (marcações)")+".");
+  }catch(e){banner("Falha na exportação do CSV.",true);}
+}
 async function exportarJSON(){
   try{const r=await fetch("/api/exportar",{headers:{"Authorization":"Bearer "+token}});
     if(r.status!==200){banner("Não foi possível exportar.",true);return;}
@@ -444,14 +465,52 @@ async function exportarJSON(){
     banner("Dados exportados em JSON.");
   }catch(e){banner("Falha na exportação.",true);}
 }
-async function guardarBackupCfg(){
-  const pasta=document.getElementById("cfg-backup").value.trim();
-  const r=await mutacao("/api/config",{pastaBackup:pasta},`A pasta de backup passa a ser <b>${esc(pasta||"a local (backups)")}</b>.`,"PUT");
-  if(r.ok)document.getElementById("backup-estado").textContent="Configuração guardada.";
+/* ============ painel de configuração ============ */
+const CAMPOS_CFG=[["g-horaInicio","horaInicio"],["g-horaFim","horaFim"],["g-horaInicio2","horaInicio2"],["g-horaFim2","horaFim2"],
+  ["g-sabadoInicio","sabadoInicio"],["g-sabadoFim","sabadoFim"],["g-sabadoInicio2","sabadoInicio2"],["g-sabadoFim2","sabadoFim2"]];
+let cfgAssinatura=null;
+function assinaturaCfg(){
+  return JSON.stringify([config.horaInicio,config.horaFim,config.horaInicio2,config.horaFim2,
+    config.sabadoInicio,config.sabadoFim,config.sabadoInicio2,config.sabadoFim2,
+    config.intervaloMin,config.maxPorHora,!!config.mostrarSabado,diasFechadosDoCfg(),config.pastaBackup||""]);
+}
+function defCampo(id,v){const e=document.getElementById(id);if(e)e.value=v;}
+function renderConfig(){
+  const assin=assinaturaCfg();
+  /* só reescreve o formulário quando a configuração mudou mesmo: a página
+     sincroniza a cada 5 s e não pode apagar o que está a ser escrito */
+  if(assin===cfgAssinatura)return;
+  cfgAssinatura=assin;
+  CAMPOS_CFG.forEach(([id,campo])=>defCampo(id,config[campo]||""));
+  defCampo("g-intervaloMin",String(config.intervaloMin||30));
+  defCampo("g-maxPorHora",String(config.maxPorHora||2));
+  document.getElementById("g-mostrarSabado").checked=config.mostrarSabado!==false;
+  defCampo("g-diasFechados",diasFechadosDoCfg().join("\n"));
+  defCampo("g-pastaBackup",config.pastaBackup||"");
+}
+function lerDiasFechados(txt){return [...new Set(String(txt||"").split(/[\s,;]+/).filter(Boolean))];}
+async function guardarConfigUI(){
+  const corpo={};
+  for(const [id,campo] of CAMPOS_CFG){
+    const v=val(id);
+    if(!v){alert("Preencha todos os horários (dias úteis e sábado).");return;}
+    corpo[campo]=v;
+  }
+  const intervalo=Number(val("g-intervaloMin")),max=Number(val("g-maxPorHora"));
+  if(![15,30,60].includes(intervalo)){alert("O intervalo tem de ser 15, 30 ou 60 minutos.");return;}
+  if(!Number.isInteger(max)||max<1||max>20){alert("O máximo por hora tem de ser um número entre 1 e 20.");return;}
+  corpo.intervaloMin=intervalo;corpo.maxPorHora=max;
+  corpo.mostrarSabado=document.getElementById("g-mostrarSabado").checked;
+  corpo.diasFechados=lerDiasFechados(val("g-diasFechados"));
+  corpo.pastaBackup=val("g-pastaBackup").trim();
+  const r=await mutacao("/api/config",corpo,
+    "A configuração (horários, dias de encerramento e pasta de backup) vai ser atualizada.","PUT");
+  if(r.ok)document.getElementById("config-estado").textContent="Configuração guardada.";
 }
 async function testarBackup(){
   const est=document.getElementById("backup-estado");est.textContent="a testar…";
-  const r=await api("/api/backup/testar",{});
+  /* testa o caminho escrito (antes de guardar), não o que está gravado */
+  const r=await api("/api/backup/testar",{pastaBackup:val("g-pastaBackup").trim()});
   est.textContent=r.s===200?"Caminho OK: "+r.d.pasta:(r.d.erro||"Falhou.");
 }
 async function backupAgora(){
@@ -512,10 +571,11 @@ function exportarCalPDF(modo){
 
 /* ============ tabs / modal ============ */
 function mostrarTab(t){
-  ["l","c","h"].forEach(x=>{
+  ["l","c","g","h"].forEach(x=>{
     document.getElementById("tab-"+x).hidden=x!==t;
     document.getElementById("tab-"+x+"-btn").classList.toggle("ativa",x===t);
   });
+  if(t==="g")renderConfig();
   if(t==="h")renderHistorico();
 }
 function abrirModal(html){document.getElementById("modal-conteudo").innerHTML=html;document.getElementById("modal").hidden=false;}

@@ -114,6 +114,10 @@ Ana Rodrigues; 934 567 890; G+C
 uma confirmação — por norma não se vacina ao sábado. Ao **domingo** não é
 possível marcar: o sistema recusa o pedido.
 
+**Dias de encerramento:** se o dia estiver na lista de encerramentos (aba
+**Configuração**), o sistema recusa a marcação e a grelha mostra o dia como
+«encerrado».
+
 ### Alterar Estado de Marcação
 
 **Estados disponíveis:**
@@ -135,6 +139,39 @@ possível marcar: o sistema recusa o pedido.
 3. Selecionar **nova data e hora**
 4. Clicar **Guardar**
 5. Marcação antiga liberta-se (não fica como cancelada nos contadores)
+
+---
+
+## Configuração (aba Configuração)
+
+Tudo se aplica de imediato, **sem reiniciar o servidor**:
+
+- **Horário dos dias úteis** e **horário de sábado** — manhã e tarde (dois
+  períodos por dia);
+- **Intervalo entre marcações** (15, 30 ou 60 min) e **máximo por hora**;
+- **Dias de encerramento** (feriados/férias): uma data por linha no formato
+  `AAAA-MM-DD` — nesses dias não se marcam vacinas;
+- **Cópia de segurança**: pasta na rede, **Testar caminho** (testa o caminho
+  escrito antes de guardar) e **Backup agora**;
+- **Guardar configuração** grava e aplica tudo.
+
+Avisos: alterar o horário **não** move marcações já feitas; um valor inválido é
+recusado com a razão (por exemplo, um horário em que já não cabe nenhuma
+marcação).
+
+---
+
+## Exportar para Excel (CSV)
+
+- **Aba Utentes → Exportar CSV** — lista de utentes (nome, contacto, vacina,
+  observações, última marcação);
+- **Aba Calendário → CSV (dia)** — usa a data escolhida na caixa ao lado — ou
+  **CSV (semana)** — a semana que está a ver;
+- O ficheiro usa separador «;» e vem com BOM UTF-8: abre diretamente no Excel
+  em português, com os acentos corretos.
+
+Para relatórios por período, o CSV de marcações também aceita filtro de datas
+(`desde`/`ate`) — ver a secção 13 do `README.md`.
 
 ---
 
@@ -337,6 +374,7 @@ Contém:
   "sabadoFim2": "17:00",     // fim da tarde de sábado
   "intervaloMin": 30,        // 15, 30 ou 60 minutos
   "mostrarSabado": true,     // mostra a coluna do sábado (marcações só 09:30–12:00 / 15:00–17:00)
+  "diasFechados": [],        // feriados/férias (AAAA-MM-DD) — sem marcações nesses dias
   "pastaBackup": ""          // pasta de backup (rede ou local)
 }
 ```
@@ -347,6 +385,9 @@ Contém:
 3. Modificar valores
 4. Guardar
 5. Arrancar servidor
+
+Alternativa sem parar o servidor: usar a aba **Configuração** da interface — os
+valores são validados e aplicados de imediato.
 
 **Exemplo: Horário diferente**
 ```json

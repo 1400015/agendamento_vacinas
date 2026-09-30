@@ -1,5 +1,46 @@
 # Alterações
 
+## 2026-09-30 (4) — Painel de configuração, dias de encerramento e exportação CSV
+
+Três melhorias para o uso no balcão: deixar de obrigar a editar `config.json` à
+mão, tratar os dias em que a farmácia está fechada e produzir ficheiros para os
+relatórios da campanha.
+
+### Painel de configuração (aba Configuração)
+Novo `PUT /api/config` completo: horários dos dias úteis e de sábado,
+`intervaloMin`, `maxPorHora`, `mostrarSabado`, `diasFechados` e `pastaBackup`.
+A validação passou a viver em `src/config.js` (`validarAlteracoesConfig`) e, ao
+contrário do ficheiro editado à mão (onde um valor inválido cai no defeito com
+aviso), o que vem da INTERFACE é **recusado com a razão** — não se grava nada
+que o utilizador não pediu — e ainda se confirma que sobram horas marcáveis nos
+dias úteis e no sábado. Depois de gravar, a API recalcula
+`horas`/`horasSabado` (deixaram de ser valores fixos da injeção), pelo que a
+alteração se aplica logo, sem reiniciar o servidor.
+
+No cliente, a nova aba junta horários, intervalo, máximo por hora, dias de
+encerramento e a cópia de segurança (que saiu da aba Histórico). O formulário só
+é reescrito quando a configuração muda mesmo (`assinaturaCfg`): sem isso, a
+sincronização de 5 s apagaria o que estivesse a ser escrito. O botão de testar o
+caminho de backup passou a testar o caminho escrito (o servidor aceita-o no
+corpo) em vez do que estava gravado.
+
+### Dias de encerramento (feriados / férias)
+`config.diasFechados` (lista de `AAAA-MM-DD`, normalizada com `validarData`).
+Nesses dias o servidor recusa agendamento e reagendamento com `400`, o cliente
+não oferece horas nem aceita a marcação, e a grelha mostra o dia como
+«encerrado» com as células indisponíveis. O arranque imprime as datas quando a
+lista não está vazia.
+
+### Exportação CSV
+Nova rota `GET /api/exportar.csv?tipo=utentes|marcacoes` (com `&desde=&ate=`
+opcional), com separador «;», BOM UTF-8 (o Excel em português abre com os
+acentos corretos) e escape de aspas, «;» e quebras de linha. Botões na lista de
+utentes e no calendário (CSV do dia / da semana).
+
+### Testes
+Bateria da API: 136 → **173 verificações**; testes de interface: **68**
+(total **241**), com `TZ=Europe/Lisbon`.
+
 ## 2026-09-30 (3) — Fechar o checklist de testes (config inválida e injeção do backup)
 
 Estavam dois itens por fazer no «Checklist de Testes» de `docs/ARQUITETURA.md`.

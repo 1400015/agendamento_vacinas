@@ -99,6 +99,8 @@ servidor.listen(PORTA, "0.0.0.0", () => {
   console.log("  Central de Marcações de Vacinas — Farmácia Boavista");
   console.log(`  Servidor na porta ${PORTA}  ·  horário ${cfg.horaInicio}–${cfg.horaFim} e ${cfg.horaInicio2}–${cfg.horaFim2} (cada ${cfg.intervaloMin} min)`);
   console.log(`  Sábado: ${cfg.sabadoInicio}–${cfg.sabadoFim} e ${cfg.sabadoInicio2}–${cfg.sabadoFim2} — marcações de sábado só nestes períodos`);
+  if (cfg.diasFechados && cfg.diasFechados.length)
+    console.log(`  Dias de encerramento: ${cfg.diasFechados.slice(0, 8).join(", ")}${cfg.diasFechados.length > 8 ? " …" : ""}`);
   console.log(`  Máx. por hora: ${cfg.maxPorHora} (exceção justificada com motivo)`);
   console.log(`  Neste computador:  http://localhost:${PORTA}`);
   (ips.length ? ips : ["<ip-do-servidor>"]).forEach(ip => console.log(`  Nos postos da frente: http://${ip}:${PORTA}`));

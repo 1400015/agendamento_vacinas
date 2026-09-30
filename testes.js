@@ -406,6 +406,108 @@ function ok(nome, cond) {
   BKL.usarFicheiroDados(ARML.FICHEIRO_DADOS);   // repor o caminho real do processo de testes
   fsBk.rmSync(pastaBk, { recursive: true, force: true });
 
+  /* ---- configuração pela interface: horários, sábado, intervalo, máx/hora ---- */
+  console.log("\n[Configuração pela interface]");
+  let dCfg = (await api("/api/dados")).d;
+  base = dCfg.versao;
+  const cfgOriginal = Object.assign({}, dCfg.config);
+
+  r = await api("/api/config", { baseVersao: base, horaInicio: "25:00" }, "PUT");
+  ok("hora inválida recusada (400) com a razão", r.s === 400 && /horaInicio/.test(r.d.erro));
+  r = await api("/api/config", { baseVersao: base, intervaloMin: 7 }, "PUT");
+  ok("intervalo inválido recusado (400)", r.s === 400);
+  r = await api("/api/config", { baseVersao: base, maxPorHora: 0 }, "PUT");
+  ok("maxPorHora inválido recusado (400)", r.s === 400);
+  r = await api("/api/config", { baseVersao: base, diasFechados: ["2026-13-40"] }, "PUT");
+  ok("dia de encerramento inválido recusado (400)", r.s === 400);
+  r = await api("/api/config", { baseVersao: base, horaInicio: "07:00", horaFim: "07:00", horaInicio2: "07:00", horaFim2: "07:00" }, "PUT");
+  ok("horário sem nenhuma hora marcável recusado (400)", r.s === 400);
+  r = await api("/api/config", { baseVersao: base, campoInventado: 1 }, "PUT");
+  ok("pedido de config sem campos conhecidos recusado (400)", r.s === 400);
+  ok("nada foi gravado pelos pedidos recusados", (await api("/api/dados")).d.versao === base);
+
+  r = await api("/api/config", { baseVersao: base, horaInicio: "09:00", horaFim: "11:00", horaInicio2: "14:00", horaFim2: "16:00",
+    sabadoInicio: "09:00", sabadoFim: "10:00", sabadoInicio2: "15:00", sabadoFim2: "16:00",
+    intervaloMin: 60, maxPorHora: 3, mostrarSabado: true }, "PUT");
+  ok("alteração válida aceite", r.s === 200);
+  ok("horas dos dias úteis recalculadas a partir da nova config",
+    JSON.stringify(r.d.horas) === JSON.stringify(["09:00", "10:00", "11:00", "14:00", "15:00", "16:00"]));
+  ok("horas de sábado recalculadas a partir da nova config",
+    JSON.stringify(r.d.horasSabado) === JSON.stringify(["09:00", "10:00", "15:00", "16:00"]));
+  ok("config nova persistida no ficheiro", JSON.parse(fsCfg.readFileSync("config.json", "utf8")).intervaloMin === 60);
+  base = r.d.versao;
+  r = await api("/api/marcacoes", { baseVersao: base, utenteId: maria.id, data: "2099-09-30", hora: "10:00", vacinas: ["G"] });
+  ok("hora válida pela nova config aceite", r.s === 200);
+  if (r.s === 200) base = r.d.versao;
+  r = await api("/api/marcacoes", { baseVersao: base, utenteId: maria.id, data: "2099-09-30", hora: "10:30", vacinas: ["G"] });
+  ok("hora que a nova config já não oferece recusada (400)", r.s === 400);
+
+  /* ---- dias de encerramento (feriados / férias) ---- */
+  console.log("\n[Dias de encerramento]");
+  r = await api("/api/config", { baseVersao: base, diasFechados: ["2099-09-30", "2099-10-05"] }, "PUT");
+  ok("definir dias de encerramento", r.s === 200 && JSON.stringify(r.d.config.diasFechados) === '["2099-09-30","2099-10-05"]');
+  base = r.d.versao;
+  r = await api("/api/marcacoes", { baseVersao: base, utenteId: joao.id, data: "2099-09-30", hora: "10:00", vacinas: ["G"] });
+  ok("marcação num dia de encerramento recusada (400)", r.s === 400 && /encerrada/.test(r.d.erro));
+  r = await api("/api/marcacoes", { baseVersao: base, utenteId: joao.id, data: "2099-10-05", hora: "10:00", vacinas: ["G"] });
+  ok("segunda-feira seguinte (também encerrada) recusada", r.s === 400);
+  r = await api("/api/marcacoes", { baseVersao: base, utenteId: joao.id, data: "2099-10-01", hora: "10:00", vacinas: ["G"] });
+  ok("dia normal entre encerramentos continua aceite", r.s === 200);
+  if (r.s === 200) base = r.d.versao;
+  const alvoEnc = (await api("/api/dados")).d.marcacoes.find(m => m.utenteId === joao.id && m.estado === "agendado");
+  r = await api("/api/marcacoes/" + alvoEnc.id, { baseVersao: base, rev: alvoEnc.rev, reagendar: true, novaData: "2099-09-30", novaHora: "10:00" }, "PUT");
+  ok("reagendar para um dia de encerramento recusado (400)", r.s === 400);
+  r = await api("/api/config", { baseVersao: base, diasFechados: [] }, "PUT");
+  ok("remover os dias de encerramento volta a aceitar", r.s === 200 && r.d.config.diasFechados.length === 0);
+  base = r.d.versao;
+  r = await api("/api/marcacoes", { baseVersao: base, utenteId: joao.id, data: "2099-10-05", hora: "10:00", vacinas: ["G"] });
+  ok("depois de remover, o dia volta a aceitar marcações", r.s === 200);
+  if (r.s === 200) base = r.d.versao;
+
+  /* ---- reposição da configuração original (não deixar o servidor alterado) ---- */
+  r = await api("/api/config", { baseVersao: base, horaInicio: cfgOriginal.horaInicio, horaFim: cfgOriginal.horaFim,
+    horaInicio2: cfgOriginal.horaInicio2, horaFim2: cfgOriginal.horaFim2,
+    sabadoInicio: cfgOriginal.sabadoInicio, sabadoFim: cfgOriginal.sabadoFim,
+    sabadoInicio2: cfgOriginal.sabadoInicio2, sabadoFim2: cfgOriginal.sabadoFim2,
+    intervaloMin: cfgOriginal.intervaloMin, maxPorHora: cfgOriginal.maxPorHora,
+    mostrarSabado: cfgOriginal.mostrarSabado, diasFechados: cfgOriginal.diasFechados || [] }, "PUT");
+  ok("configuração original reposta no fim", r.s === 200 && r.d.config.horaInicio === cfgOriginal.horaInicio &&
+    JSON.stringify(r.d.horas) === JSON.stringify(["08:30", "09:00", "09:30", "10:00", "10:30", "11:00", "11:30", "12:00", "14:30", "15:00", "15:30", "16:00", "16:30", "17:00", "17:30", "18:00", "18:30", "19:00", "19:30"]));
+  base = r.d.versao;
+
+  /* ---- exportação CSV (relatórios da campanha) ---- */
+  console.log("\n[Exportação CSV]");
+  const csvSemSessao = await fetch(B + "/api/exportar.csv?tipo=utentes");
+  ok("CSV sem sessão recusado (401)", csvSemSessao.status === 401);
+  const csvTipoMau = await fetch(B + "/api/exportar.csv?tipo=outro", { headers: { "Authorization": "Bearer " + token } });
+  ok("tipo de CSV inválido recusado (400)", csvTipoMau.status === 400);
+
+  const csvU = await fetch(B + "/api/exportar.csv?tipo=utentes", { headers: { "Authorization": "Bearer " + token } });
+  /* lido em bytes: o .text() do fetch remove o BOM e é ele que o Excel precisa */
+  const bufU = new Uint8Array(await csvU.arrayBuffer());
+  const txtU = Buffer.from(bufU).toString("utf8");
+  ok("CSV de utentes servido para download",
+    csvU.status === 200 && (csvU.headers.get("content-type") || "").includes("text/csv") && (csvU.headers.get("content-disposition") || "").includes(".csv"));
+  ok("CSV começa com BOM UTF-8 (acentos corretos no Excel)", bufU[0] === 0xEF && bufU[1] === 0xBB && bufU[2] === 0xBF);
+  ok("CSV de utentes com cabeçalho separado por «;»",
+    txtU.split("\r\n")[0].replace("\uFEFF", "") === "Nome;Contacto;Vacina;Observações;Última marcação;Data;Hora;Criado por");
+  ok("CSV de utentes inclui os utentes", txtU.includes("Maria Fernandes"));
+
+  const csvM = await fetch(B + "/api/exportar.csv?tipo=marcacoes&desde=2099-10-01&ate=2099-10-01", { headers: { "Authorization": "Bearer " + token } });
+  const txtM = await csvM.text();
+  ok("CSV de marcações com filtro de datas", csvM.status === 200 && txtM.includes("2099-10-01"));
+  ok("o filtro de datas deixa de fora os outros dias", !txtM.includes("2099-09-22") && !txtM.includes("2099-10-05"));
+  const csvMau = await fetch(B + "/api/exportar.csv?tipo=marcacoes&desde=2099-99-99", { headers: { "Authorization": "Bearer " + token } });
+  ok("filtro de datas inválido recusado (400)", csvMau.status === 400);
+
+  r = await api("/api/utentes", { baseVersao: base, nome: "Relatório; Teste", contacto: "900 000 000", vacina: "G", obs: 'observação "com" aspas; e ponto e vírgula' });
+  ok("utente com «;» e aspas criado para testar o escape", r.s === 200);
+  if (r.s === 200) base = r.d.versao;
+  const csvU2 = await fetch(B + "/api/exportar.csv?tipo=utentes", { headers: { "Authorization": "Bearer " + token } });
+  const txtU2 = await csvU2.text();
+  ok("campos com «;» e aspas ficam entre aspas duplas (Excel não parte as linhas)",
+    txtU2.includes('"Relatório; Teste"') && txtU2.includes('"observação ""com"" aspas; e ponto e vírgula"'));
+
   /* ---- corpo demasiado grande responde 413 (não pendura o cliente) ---- */
   console.log("\n[Corpo demasiado grande]");
   const grande = await fetch(B + "/api/utentes", {
@@ -503,6 +605,11 @@ function ok(nome, cond) {
   ok("cliente: aviso de que está a marcar num sábado", js.includes("MSG_SABADO") && /SÁBADO/.test(js));
   ok("cliente: domingo recusado também no cliente", /Não é possível (agendar|marcar) ao domingo/.test(js));
   ok("cliente: períodos de sábado no cabeçalho da grelha", js.includes("09:30–12:00 · 15:00–17:00"));
+  ok("aba de configuração na interface", html.includes("tab-g") && html.includes("Guardar configuração") && js.includes("guardarConfigUI"));
+  ok("dias de encerramento na interface", html.includes("Dias de encerramento") && js.includes("diaFechado"));
+  ok("exportação CSV na interface (utentes e marcações)", html.includes("exportarCSV('utentes')") && html.includes("exportarCSV('marcacoes'") && js.includes("/api/exportar.csv"));
+  ok("cliente: dia de encerramento não oferece horas nem aceita marcação", js.includes("dia de encerramento") && js.includes("Não há horas marcáveis"));
+  ok("cliente: painel guarda tudo num único PUT /api/config", js.includes("CAMPOS_CFG") && /mutacao\("\/api\/config"[\s\S]*?"PUT"\)/.test(js));
 
   console.log("\n════════════════════════════════════════");
   console.log(`  Resultado: ${passou} passaram, ${falhou} falharam`);

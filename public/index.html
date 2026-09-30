@@ -59,6 +59,7 @@ tr.utl td{cursor:pointer}
 .cal-dia{background:#f8fafc;border:1px solid var(--borda);border-radius:8px;padding:6px 8px;font-size:.8rem;font-weight:600;text-align:center}
 .cal-dia small{display:block;font-size:.68rem;font-weight:400;color:var(--muted)}
 .cal-dia.hoje{outline:2px solid var(--prim)}
+.cal-dia.fechado{background:#fef2f2;border-color:#fecaca;color:var(--erro)}
 .cal-celula{min-height:54px;border:1px dashed #cbd5e1;border-radius:8px;padding:3px;cursor:pointer;position:relative}
 .cal-celula:hover{background:#f0fdfa;border-color:var(--prim)}
 .cal-celula.indisponivel{border-style:solid;border-color:#eef2f6;background:repeating-linear-gradient(45deg,#f8fafc,#f8fafc 6px,#eef2f6 6px,#eef2f6 12px);cursor:not-allowed;opacity:.6}
@@ -69,6 +70,11 @@ tr.utl td{cursor:pointer}
 .est-faltou{background:#fef3c7;border-left-color:#d97706}
 .est-cancelado{background:#e2e8f0;border-left-color:#94a3b8;opacity:.6}
 .just{color:var(--aviso);font-size:.66rem}
+.cfg-titulo{font-size:.8rem;color:var(--prim);margin:16px 0 8px;text-transform:uppercase;letter-spacing:.04em}
+.campo textarea{width:100%;font-family:inherit;resize:vertical}
+.check{flex-direction:row;align-items:center;gap:6px;padding-bottom:6px}
+.check input{width:auto}
+.check label{margin:0}
 /* modal / pin */
 .fundo-modal{position:fixed;inset:0;background:rgba(10,25,40,.5);display:flex;align-items:center;justify-content:center;z-index:40}
 .modal{background:#fff;border-radius:12px;padding:20px;width:min(480px,94vw);max-height:88vh;overflow:auto}
@@ -116,6 +122,7 @@ body{background:#fff}main,.painel{max-width:none}}
 <div class="tabs">
   <button class="tab ativa" id="tab-l-btn" onclick="mostrarTab('l')">Utentes</button>
   <button class="tab" id="tab-c-btn" onclick="mostrarTab('c')">Calendário semanal</button>
+  <button class="tab" id="tab-g-btn" onclick="mostrarTab('g')">Configuração</button>
   <button class="tab" id="tab-h-btn" onclick="mostrarTab('h')">Histórico</button>
 </div>
 
@@ -136,6 +143,7 @@ body{background:#fff}main,.painel{max-width:none}}
       <div class="campo"><label>Importar .txt (nome; contacto; vacina — contacto opcional)</label><input type="file" id="ficheiro-txt" accept=".txt,text/plain"></div>
       <div class="campo"><label>Pesquisar</label><input id="pesquisa" placeholder="Nome ou contacto…" style="width:220px"></div>
       <button class="btn" onclick="exportarUtentesPDF()">Exportar PDF</button>
+      <button class="btn" onclick="exportarCSV('utentes')">Exportar CSV</button>
     </div>
     <div style="overflow-x:auto">
       <table>
@@ -151,12 +159,61 @@ body{background:#fff}main,.painel{max-width:none}}
       <h2 id="cal-periodo"></h2>
       <button class="btn" onclick="mudarSemana(1)">Semana seguinte →</button>
       <button class="btn mini" onclick="irParaSemanaAtual()">Hoje</button>
-      <input type="date" id="pdf-dia" title="Dia a exportar em PDF">
+      <input type="date" id="pdf-dia" title="Dia a exportar (PDF/CSV)">
       <button class="btn mini" onclick="exportarCalPDF('dia')">PDF (dia)</button>
       <button class="btn mini" onclick="exportarCalPDF('semana')">PDF (semana completa)</button>
+      <button class="btn mini" onclick="exportarCSV('marcacoes',document.getElementById('pdf-dia').value||isoHoje(),document.getElementById('pdf-dia').value||isoHoje())">CSV (dia)</button>
+      <button class="btn mini" onclick="exportarCSV('marcacoes',diasDaSemana()[0],diasDaSemana()[diasDaSemana().length-1])">CSV (semana)</button>
       <span class="mut">Sábado: só das 09:30–12:00 e das 15:00–17:00 e com aviso de confirmação.</span>
     </div>
     <div class="grelha-scroll"><div class="cal-grelha" id="grelha"></div></div>
+  </section>
+
+  <section id="tab-g" class="painel" hidden>
+    <p class="mut" style="margin-top:0">Alterar o horário não move marcações já feitas — as marcações existentes ficam como estão (e as horas deixam de ser oferecidas para novas marcações).</p>
+
+    <h2 class="cfg-titulo">Horário dos dias úteis</h2>
+    <div class="barra">
+      <div class="campo"><label>Manhã — início</label><input type="time" id="g-horaInicio"></div>
+      <div class="campo"><label>Manhã — fim</label><input type="time" id="g-horaFim"></div>
+      <div class="campo"><label>Tarde — início</label><input type="time" id="g-horaInicio2"></div>
+      <div class="campo"><label>Tarde — fim</label><input type="time" id="g-horaFim2"></div>
+    </div>
+
+    <h2 class="cfg-titulo">Horário de sábado <span class="mut">— por norma não se vacina ao sábado; a marcação pede confirmação</span></h2>
+    <div class="barra">
+      <div class="campo"><label>Manhã — início</label><input type="time" id="g-sabadoInicio"></div>
+      <div class="campo"><label>Manhã — fim</label><input type="time" id="g-sabadoFim"></div>
+      <div class="campo"><label>Tarde — início</label><input type="time" id="g-sabadoInicio2"></div>
+      <div class="campo"><label>Tarde — fim</label><input type="time" id="g-sabadoFim2"></div>
+    </div>
+
+    <div class="barra">
+      <div class="campo"><label>Intervalo entre marcações</label>
+        <select id="g-intervaloMin"><option value="15">15 min</option><option value="30">30 min</option><option value="60">60 min</option></select></div>
+      <div class="campo"><label>Máx. por hora</label><input type="number" id="g-maxPorHora" min="1" max="20" style="width:90px"></div>
+      <div class="campo check"><input type="checkbox" id="g-mostrarSabado"><label>Mostrar o sábado no calendário</label></div>
+    </div>
+
+    <h2 class="cfg-titulo">Dias de encerramento (feriados / férias)</h2>
+    <div class="barra">
+      <div class="campo" style="flex:1;min-width:300px"><label>Uma data por linha (AAAA-MM-DD) — nesses dias a farmácia não vacina e não aceita marcações</label>
+        <textarea id="g-diasFechados" rows="4" placeholder="2026-12-08&#10;2026-12-25"></textarea></div>
+    </div>
+
+    <h2 class="cfg-titulo">Cópia de segurança</h2>
+    <div class="barra" style="border:1px solid var(--borda);border-radius:8px;padding:10px 12px">
+      <div class="campo" style="flex:1;min-width:260px"><label>Pasta noutro posto da rede (vazio = pasta local «backups»)</label>
+        <input id="g-pastaBackup" placeholder="\\POSTO-SALA\vacinas-backup ou /mnt/backup/vacinas" style="width:100%"></div>
+      <button class="btn" onclick="testarBackup()">Testar caminho</button>
+      <button class="btn" onclick="backupAgora()">Backup agora</button>
+      <span class="mut" id="backup-estado"></span>
+    </div>
+
+    <div class="barra">
+      <button class="btn primario" onclick="guardarConfigUI()">Guardar configuração</button>
+      <span class="mut" id="config-estado"></span>
+    </div>
   </section>
 
   <section id="tab-h" class="painel" hidden>
@@ -165,14 +222,6 @@ body{background:#fff}main,.painel{max-width:none}}
       <div style="display:flex;gap:8px">
         <button class="btn" onclick="exportarJSON()">Exportar dados (JSON)</button>
       </div>
-    </div>
-    <div class="barra" style="border:1px solid var(--borda);border-radius:8px;padding:10px 12px;margin-bottom:12px">
-      <div class="campo" style="flex:1;min-width:260px"><label>Backup automático — pasta noutro posto da rede (vazio = pasta local «backups»)</label>
-        <input id="cfg-backup" placeholder="\\POSTO-SALA\vacinas-backup ou /mnt/backup/vacinas" style="width:100%"></div>
-      <button class="btn" onclick="guardarBackupCfg()">Guardar</button>
-      <button class="btn" onclick="testarBackup()">Testar caminho</button>
-      <button class="btn" onclick="backupAgora()">Backup agora</button>
-      <span class="mut" id="backup-estado"></span>
     </div>
     <div style="overflow-x:auto">
       <table>

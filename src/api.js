@@ -17,14 +17,47 @@ const CAB_SEGURANCA = {
 
 /* contexto: { dados, cfg, horas, horasSabado, persistir, registar, backupAuto } */
 function criarApi(ctx) {
-  const { dados, cfg, horas, horasSabado, persistir, registar } = ctx;
+  const { dados, cfg, persistir, registar } = ctx;
+  /* horas e horasSabado são recalculados quando a configuração muda a correr
+     (painel de configuração) — deixam de ser valores fixos da injecção */
+  let horas = ctx.horas, horasSabado = ctx.horasSabado;
+  const recarregarHorarios = () => { horas = CFG_MOD.gerarHoras(cfg); horasSabado = CFG_MOD.gerarHorasSabado(cfg); };
 
   function utenteDe(id) { const u = dados.utentes.find(x => x.id === id); return u ? u.nome : "?"; }
   function ocupantes(data, hora, excetoId) {
     return dados.marcacoes.filter(m => m.data === data && m.hora === hora && U.OCUPAM.includes(m.estado) && m.id !== excetoId);
   }
-  /* horas válidas por dia: o sábado tem períodos próprios; o domingo não tem nenhum */
-  const horasDoDia = data => U.diaDaSemana(data) === 6 ? horasSabado : horas;
+  /* dias de encerramento (feriados/férias): a farmácia não vacina nesses dias */
+  const encerrado = data => (Array.isArray(cfg.diasFechados) ? cfg.diasFechados : []).includes(data);
+  /* horas válidas por dia: dias de encerramento não têm nenhuma; o sábado tem
+     períodos próprios; o domingo não tem nenhum */
+  const horasDoDia = data => encerrado(data) ? [] : (U.diaDaSemana(data) === 6 ? horasSabado : horas);
+
+  /* ---- CSV (relatórios): Excel pt-PT abre com «;» e BOM UTF-8 ---- */
+  function csvCampo(v) {
+    const s = v === undefined || v === null ? "" : String(v);
+    return /[";\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+  function csvUtentes() {
+    const linhas = [["Nome", "Contacto", "Vacina", "Observações", "Última marcação", "Data", "Hora", "Criado por"]];
+    for (const u of dados.utentes.slice().sort((a, b) => a.nome.localeCompare(b.nome, "pt"))) {
+      const m = dados.marcacoes.filter(x => x.utenteId === u.id).sort((a, b) => (b.data + b.hora).localeCompare(a.data + a.hora))[0];
+      linhas.push([u.nome, u.contacto, u.vacina, u.obs || "", m ? m.estado : "sem marcação", m ? m.data : "", m ? m.hora : "", u.criadoPor || ""]);
+    }
+    return linhas;
+  }
+  function csvMarcacoes(desde, ate) {
+    const linhas = [["Data", "Hora", "Utente", "Contacto", "Vacinas", "Estado", "Justificada", "Motivo", "Criada por"]];
+    const lista = dados.marcacoes
+      .filter(m => (!desde || m.data >= desde) && (!ate || m.data <= ate))
+      .sort((a, b) => (a.data + a.hora).localeCompare(b.data + b.hora));
+    for (const m of lista) {
+      const u = dados.utentes.find(x => x.id === m.utenteId) || { nome: "(utente eliminado)", contacto: "" };
+      linhas.push([m.data, m.hora, u.nome, u.contacto, m.vacinas.join("+"), m.estado,
+        m.justificada ? "sim" : "", m.justificada ? (m.motivo || "") : "", m.criadoPor || ""]);
+    }
+    return linhas;
+  }
 
   async function api(req, res, corpo) {
     const rota = req.url.split("?")[0];
@@ -114,8 +147,33 @@ function criarApi(ctx) {
       return res.end(carga);
     }
 
+    /* ---------- exportação CSV (relatórios da campanha) ---------- */
+    if (rota === "/api/exportar.csv" && req.method === "GET") {
+      const q = new URLSearchParams(req.url.split("?")[1] || "");
+      const tipo = q.get("tipo") || "marcacoes";
+      if (!["marcacoes", "utentes"].includes(tipo))
+        return resp(400, { erro: 'tipo inválido (use "marcacoes" ou "utentes").' });
+      const brutoDesde = q.get("desde"), brutoAte = q.get("ate");
+      const desde = brutoDesde ? U.validarData(brutoDesde) : null;
+      const ate = brutoAte ? U.validarData(brutoAte) : null;
+      if ((brutoDesde && !desde) || (brutoAte && !ate))
+        return resp(400, { erro: "Filtro de datas inválido (use AAAA-MM-DD)." });
+      const linhas = tipo === "utentes" ? csvUtentes() : csvMarcacoes(desde, ate);
+      const csv = "\uFEFF" + linhas.map(l => l.map(csvCampo).join(";")).join("\r\n") + "\r\n";
+      res.writeHead(200, Object.assign({
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": 'attachment; filename="vacinas-' + tipo + "-" + BK.dataLocalArquivo() + '.csv"'
+      }, CAB_SEGURANCA));
+      return res.end(csv);
+    }
+
     if (rota === "/api/backup/testar" && req.method === "POST") {
-      const t = BK.testarPasta(cfg);
+      /* testa o caminho indicado (a interface testa antes de guardar) ou, se
+         não vier nenhum, o que está configurado */
+      const alvo = corpo.pastaBackup !== undefined
+        ? Object.assign({}, cfg, { pastaBackup: String(corpo.pastaBackup || "").trim() })
+        : cfg;
+      const t = BK.testarPasta(alvo);
       if (!t.ok) return resp(400, { ok: false, pasta: t.pasta, erro: "Não foi possível escrever em " + t.pasta + " — " + t.erro });
       return resp(200, { ok: true, pasta: t.pasta, maxCopias: BK.BACKUP_COPIAS, ultimoBackup: dados.ultimoBackup || null });
     }
@@ -143,17 +201,17 @@ function criarApi(ctx) {
       resp(200, Object.assign({ versao: dados.versao, utentes: dados.utentes, marcacoes: dados.marcacoes, config: cfg, horas, horasSabado }, extra || {}));
     };
 
-    /* ---------- configuração (pasta de backup na rede interna) ---------- */
+    /* ---------- configuração (horários, dias de encerramento, backup) ----------
+       A validação é a de config.js: o valor inválido que vem da INTERFACE é
+       recusado com a razão (não é substituído em silêncio como no ficheiro).  */
     if (rota === "/api/config" && req.method === "PUT") {
-      if (!Number.isInteger(corpo.baseVersao)) return resp(400, { erro: "baseVersao em falta." });
-      if (corpo.baseVersao !== dados.versao) {
-        return resp(409, { erro: "conflito", motivo: "versao", versao: dados.versao, config: cfg,
-          utentes: dados.utentes, marcacoes: dados.marcacoes });
-      }
-      const p = String(corpo.pastaBackup || "").trim();
-      if (corpo.pastaBackup !== undefined) cfg.pastaBackup = p;
+      if (!baseVersaoOk()) return;
+      const v = CFG_MOD.validarAlteracoesConfig(cfg, corpo);
+      if (!v.ok) return resp(400, { erro: v.erros.join(" ") });
+      Object.assign(cfg, v.alteracoes);
       CFG_MOD.gravarConfig(cfg);
-      registar(posto, "config", "pastaBackup", p || "(local: pasta backups)");
+      recarregarHorarios();
+      registar(posto, "config", Object.keys(v.alteracoes).join(", "), JSON.stringify(v.alteracoes).slice(0, 500));
       return gravar({ config: cfg });
     }
 
@@ -233,6 +291,7 @@ function criarApi(ctx) {
       if (!utente) return resp(409, { erro: "Utente não existe (eliminado noutro posto?)" });
       if (!data) return resp(400, { erro: "Data válida (AAAA-MM-DD) obrigatória." });
       if (U.diaDaSemana(data) === 0) return resp(400, { erro: "Não é possível agendar ao domingo." });
+      if (encerrado(data)) return resp(400, { erro: "A farmácia está encerrada nesse dia (dia de encerramento)." });
       const horasDia = horasDoDia(data);
       if (!horasDia.includes(corpo.hora))
         return resp(400, { erro: `Hora fora do horário${U.diaDaSemana(data) === 6 ? " de sábado" : ""} (${horasDia[0]}–${horasDia[horasDia.length - 1]}).` });
@@ -272,6 +331,8 @@ function criarApi(ctx) {
         return resp(400, { erro: "Para reagendar indique data e hora válidas." });
       if (nd && U.diaDaSemana(nd) === 0)
         return resp(400, { erro: "Não é possível agendar ao domingo." });
+      if (nd && encerrado(nd))
+        return resp(400, { erro: "A farmácia está encerrada nesse dia (dia de encerramento)." });
       if (nd && nh && !horasDoDia(nd).includes(nh))
         return resp(400, { erro: `Hora fora do horário${U.diaDaSemana(nd) === 6 ? " de sábado" : ""}.` });
       const reagendar = !!corpo.reagendar;

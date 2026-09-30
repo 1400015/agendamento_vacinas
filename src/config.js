@@ -3,9 +3,12 @@
    (nunca regravar por cima). Inválida por campo: avisa e usa o defeito.  */
 const fs = require("fs");
 const path = require("path");
-const { RAIZ, logOp, lerJSONcBOM, validarHoraTexto } = require("./util");
+const { RAIZ, logOp, lerJSONcBOM, validarHoraTexto, validarData } = require("./util");
 
 const FICHEIRO_CONFIG = path.join(RAIZ, "config.json");
+
+/* períodos aceites na configuração (dias úteis + sábado) */
+const CAMPOS_HORA = ["horaInicio", "horaFim", "horaInicio2", "horaFim2", "sabadoInicio", "sabadoFim", "sabadoInicio2", "sabadoFim2"];
 
 function carregarConfig() {
   let cfg = {};
@@ -36,10 +39,20 @@ function carregarConfig() {
     }
     def[campo] = v || defeito;
   }
+  /* dias de encerramento (feriados/férias): a farmácia não vacina; entram
+     normalizados e as datas inválidas não passam do ficheiro para a memória */
+  const diasBrutos = Array.isArray(cfg.diasFechados) ? cfg.diasFechados : [];
+  const diasFechados = [...new Set(diasBrutos.map(validarData).filter(Boolean))];
+  if (diasBrutos.length !== diasFechados.length) {
+    logOp("AVISO", "diasFechados: " + diasBrutos.length + " entrada(s), " + diasFechados.length + " válida(s) — as restantes ignoradas.");
+    console.error("AVISO: diasFechados com datas inválidas ignoradas (use AAAA-MM-DD).");
+  }
   Object.assign(def, {
     intervaloMin: [15, 30, 60].includes(Number(cfg.intervaloMin)) ? Number(cfg.intervaloMin) : 30,
+    maxPorHora: Number.isInteger(Number(cfg.maxPorHora)) && Number(cfg.maxPorHora) >= 1 ? Number(cfg.maxPorHora) : 2,
     mostrarSabado: cfg.mostrarSabado !== undefined ? !!cfg.mostrarSabado : true,
-    pastaBackup: typeof cfg.pastaBackup === "string" ? cfg.pastaBackup.trim() : ""
+    pastaBackup: typeof cfg.pastaBackup === "string" ? cfg.pastaBackup.trim() : "",
+    diasFechados
   });
   const minutos = t => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
   const slotsPeriodo = (ini, fim) => fim >= ini + def.intervaloMin;
@@ -86,4 +99,50 @@ function gerarHorasSabado(cfg) {
   return gerarPeriodos([[cfg.sabadoInicio, cfg.sabadoFim], [cfg.sabadoInicio2, cfg.sabadoFim2]], cfg.intervaloMin);
 }
 
-module.exports = { FICHEIRO_CONFIG, carregarConfig, gravarConfig, gerarHoras, gerarHorasSabado };
+/* Validação das alterações de configuração vindas da interface (PUT /api/config).
+   Ao contrário do ficheiro editado à mão (onde um valor inválido cai no defeito
+   com aviso), aqui o pedido é do utilizador e o valor inválido é RECUSADO com a
+   razão — não se grava nada que ele não tenha pedido. Devolve
+   { ok, alteracoes } ou { ok: false, erros: [...] }.                      */
+function validarAlteracoesConfig(atuais, corpo) {
+  const alteracoes = {};
+  const erros = [];
+  for (const campo of CAMPOS_HORA) {
+    if (corpo[campo] === undefined) continue;
+    const v = validarHoraTexto(corpo[campo]);
+    if (!v) { erros.push(`${campo} inválida (use HH:MM).`); continue; }
+    alteracoes[campo] = v;
+  }
+  if (corpo.intervaloMin !== undefined) {
+    const n = Number(corpo.intervaloMin);
+    if (![15, 30, 60].includes(n)) erros.push("intervaloMin tem de ser 15, 30 ou 60 minutos.");
+    else alteracoes.intervaloMin = n;
+  }
+  if (corpo.maxPorHora !== undefined) {
+    const n = Number(corpo.maxPorHora);
+    if (!Number.isInteger(n) || n < 1 || n > 20) erros.push("maxPorHora tem de ser um número inteiro entre 1 e 20.");
+    else alteracoes.maxPorHora = n;
+  }
+  if (corpo.mostrarSabado !== undefined) alteracoes.mostrarSabado = !!corpo.mostrarSabado;
+  if (corpo.pastaBackup !== undefined) alteracoes.pastaBackup = String(corpo.pastaBackup || "").trim();
+  if (corpo.diasFechados !== undefined) {
+    if (!Array.isArray(corpo.diasFechados)) erros.push("diasFechados tem de ser uma lista de datas.");
+    else {
+      const datas = corpo.diasFechados.map(d => validarData(String(d || "").trim()));
+      if (datas.includes(null)) erros.push("diasFechados contém uma data inválida (use AAAA-MM-DD).");
+      else alteracoes.diasFechados = [...new Set(datas)];
+    }
+  }
+  if (erros.length) return { ok: false, erros };
+  if (!Object.keys(alteracoes).length) return { ok: false, erros: ["Nenhuma alteração indicada."] };
+  const proposta = Object.assign({}, atuais, alteracoes);
+  const minutos = t => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+  const comSlot = (ini, fim) => minutos(fim) >= minutos(ini) + proposta.intervaloMin;
+  if (!comSlot(proposta.horaInicio, proposta.horaFim) && !comSlot(proposta.horaInicio2, proposta.horaFim2))
+    return { ok: false, erros: ["O horário dos dias úteis não deixa nenhuma hora marcável (verifique início, fim e intervalo)."] };
+  if (!comSlot(proposta.sabadoInicio, proposta.sabadoFim) && !comSlot(proposta.sabadoInicio2, proposta.sabadoFim2))
+    return { ok: false, erros: ["O horário de sábado não deixa nenhuma hora marcável (verifique início, fim e intervalo)."] };
+  return { ok: true, alteracoes };
+}
+
+module.exports = { FICHEIRO_CONFIG, carregarConfig, gravarConfig, gerarHoras, gerarHorasSabado, validarAlteracoesConfig, CAMPOS_HORA };

@@ -6,7 +6,7 @@ O servidor é construído em **Node.js puro**, dividido em módulos especializad
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  servidor.js (106 linhas) — Ponto de Entrada                │
+│  servidor.js (108 linhas) — Ponto de Entrada                │
 │  ├─ Setup modules (util, config, armazenamento, autenticacao)
 │  ├─ Carregar dados + config
 │  ├─ Criar listener HTTP
@@ -26,7 +26,7 @@ O servidor é construído em **Node.js puro**, dividido em módulos especializad
 ┌──────────────────────────────┬──────────────────────────────┐
 │  Módulos Transversais        │  Módulos de Negócio          │
 ├──────────────────────────────┼──────────────────────────────┤
-│ • util.js (89 linhas)        │ • api.js (349 linhas)        │
+│ • util.js (89 linhas)        │ • api.js (410 linhas)        │
 │   - Validações               │   - Rotas HTTP               │
 │   - Normalizações            │   - Lógica de negócio        │
 │   - Log operacional          │   - Concorrência             │
@@ -42,7 +42,7 @@ O servidor é construído em **Node.js puro**, dividido em módulos especializad
 │   - Persistência atómica                                    │
 │   - Proteção contra corrupção                               │
 │                              │                               │
-│ • config.js (89 linhas)                                     │
+│ • config.js (148 linhas)                                    │
 │   - Carregamento com validação                              │
 │   - Config.json corrompido → preserva + pára               │
 │   - Geração de horários                                     │
@@ -110,7 +110,7 @@ O servidor é construído em **Node.js puro**, dividido em módulos especializad
 
 ## Módulos — Responsabilidades
 
-### `servidor.js` (106 linhas) — Orquestrador
+### `servidor.js` (108 linhas) — Orquestrador
 
 **Responsabilidade:** Setup e listeners HTTP, nada de lógica.
 
@@ -137,6 +137,10 @@ O servidor é construído em **Node.js puro**, dividido em módulos especializad
   backupAuto          // função para fazer backup automático
 }
 ```
+
+`horas` e `horasSabado` não são valores fixos: quando a configuração muda pelo
+`PUT /api/config`, a API recalcula-as (`gerarHoras`/`gerarHorasSabado`) e as
+respostas seguintes já trazem as horas novas.
 
 ### `util.js` (89 linhas) — Funções Transversais
 
@@ -200,7 +204,7 @@ U.logOp("ERRO", "backup falhou: Permission denied");
    - Rename atómico (dados.json.tmp → dados.json)
    - Protege contra falha de energia ou crash
 
-### `config.js` (89 linhas) — Configuração e Horários
+### `config.js` (148 linhas) — Configuração e Horários
 
 **Responsabilidades:**
 
@@ -223,7 +227,8 @@ U.logOp("ERRO", "backup falhou: Permission denied");
      sabadoFim2: "17:00",
      intervaloMin: 30,           // 15, 30 ou 60 minutos
      mostrarSabado: true,        // mostra a coluna do sábado na grelha
-     pastaBackup: ""             // pasta de backup (rede ou local)
+     pastaBackup: "",            // pasta de backup (rede ou local)
+     diasFechados: []            // feriados/férias sem vacinação (AAAA-MM-DD)
    }
    ```
    Fora dos períodos de sábado o servidor recusa marcações (`400`); o domingo
@@ -233,7 +238,13 @@ U.logOp("ERRO", "backup falhou: Permission denied");
 3. **Geração de Horários**
    - `gerarHoras(cfg)` — Array de strings dos dois períodos ["08:30", "09:00", …, "12:00", "14:30", …, "19:30"]
    - `gerarHorasSabado(cfg)` — o mesmo para os dois períodos do sábado (por omissão ["09:30", …, "12:00", "15:00", …, "17:00"])
-   - `api.js` usa `horasDoDia(data)` (sábado → `horasSabado`, restantes → `horas`) na validação de cada marcação e reagendamento
+   - `api.js` usa `horasDoDia(data)` (dias de encerramento → nada, sábado → `horasSabado`, restantes → `horas`) na validação de cada marcação e reagendamento
+
+4. **Alterações pela interface**
+   - `validarAlteracoesConfig(atuais, corpo)` — valida o que vem do `PUT /api/config`:
+     campo desconhecido não conta, **valor inválido é recusado com a razão** (ao
+     contrário do ficheiro editado à mão, que cai no defeito com aviso) e ainda
+     confirma que sobram horas marcáveis nos dias úteis e no sábado
 
 ### `backup.js` (63 linhas) — Cópia Diária Rotativa
 
@@ -261,7 +272,7 @@ U.logOp("ERRO", "backup falhou: Permission denied");
    - Retorna `{ok, pasta, erro}`
    - Usado pela interface para validar antes de configurar
 
-### `api.js` (349 linhas) — Lógica de Negócio
+### `api.js` (410 linhas) — Lógica de Negócio
 
 **Responsabilidades:** Todas as rotas HTTP e regras de negócio.
 
@@ -286,11 +297,21 @@ U.logOp("ERRO", "backup falhou: Permission denied");
 - `PUT /api/marcacoes/:id` — Alterar estado / reagendar
 - `DELETE /api/marcacoes/:id` — Apagar
 
-#### Config e Backup
-- `PUT /api/config` — Alterar pasta de backup
-- `POST /api/backup/testar` — Testar escrita na pasta
+#### Config, Backup e Exportação
+- `PUT /api/config` — Alterar horários (dias úteis e sábado), `intervaloMin`,
+  `maxPorHora`, `mostrarSabado`, `diasFechados` e `pastaBackup`; valida
+  (`validarAlteracoesConfig`), recalcula as horas e grava em `config.json`
+- `POST /api/backup/testar` — Testar escrita na pasta (a indicada no corpo ou a configurada)
 - `POST /api/backup` — Forçar backup manual
 - `GET /api/exportar` — Download JSON para cópia de segurança
+- `GET /api/exportar.csv` — CSV de relatórios: `?tipo=utentes|marcacoes`
+  (+ `&desde=&ate=`), com BOM UTF-8, separador «;» e escape de aspas
+
+#### Validação por dia (marcações)
+`horasDoDia(data)` devolve `[]` nos dias de encerramento, `horasSabado` ao
+sábado e `horas` nos restantes. O domingo e os dias de encerramento são
+recusados com `400` **antes** de qualquer verificação de ocupação de hora, no
+agendamento e no reagendamento.
 
 ---
 
@@ -310,8 +331,17 @@ Regras por dia aplicadas no cliente (a par da validação do servidor):
   recebido em `/api/dados`, `/api/estado` e `/api/horas`);
 - `celulaDisponivel(data, hora)` — usado pela grelha: fora dos períodos do dia
   a célula fica indisponível (não clicável);
-- `confirmarDia(data, acao)` — bloqueia o domingo e pede confirmação no sábado
-  («por norma não se vacina ao sábado»), tanto ao marcar como ao reagendar.
+- `diaFechado(data)`/`diasFechadosDoCfg()` — dias de encerramento vindos em
+  `config.diasFechados`; nesses dias `horasDoDia` é vazio e a grelha mostra o dia
+  como «encerrado»;
+- `confirmarDia(data, acao)` — bloqueia o dia de encerramento e o domingo e pede
+  confirmação no sábado («por norma não se vacina ao sábado»), tanto ao marcar
+  como ao reagendar.
+
+O painel da aba **Configuração** (`renderConfig`/`guardarConfigUI`) envia tudo
+num único `PUT /api/config`; o formulário só é reescrito quando a configuração
+muda mesmo (`assinaturaCfg`), para a sincronização de 5 s não apagar o que está
+a ser escrito. A exportação (`exportarCSV`) usa `/api/exportar.csv`.
 
 ---
 
@@ -449,4 +479,7 @@ Para validar a arquitetura:
 - [x] Teste: marcação ao sábado só nos períodos 09:30–12:00 / 15:00–17:00 e domingo recusado (400)
 - [x] Teste: config.json inválida → avisa, volta aos defeitos e corrige o ficheiro; ilegível → preserva e trava o arranque
 - [x] Teste: backup.js copia o ficheiro de dados injetado por `usarFicheiroDados()` (não o `dados.json` por omissão)
-- [x] Testes de interface: `public/app.js` executado em DOM mínimo (46 verificações)
+- [x] Teste: alteração de configuração pela API valida, recusa o inválido e recalcula as horas
+- [x] Teste: dias de encerramento recusados no agendamento e no reagendamento
+- [x] Teste: exportação CSV com BOM UTF-8, separador «;», filtro de datas e escape de aspas
+- [x] Testes de interface: `public/app.js` executado em DOM mínimo (68 verificações)

@@ -26,7 +26,7 @@ por posto.
 7. [Controlo de concorrência](#7-controlo-de-concorrência)
 8. [Segurança](#8-segurança)
 9. [Importação de utentes (.txt)](#9-importação-de-utentes-txt)
-10. [Exportação PDF](#10-exportação-pdf)
+10. [Exportação (PDF e CSV)](#10-exportação-pdf-e-csv)
 11. [Testes](#11-testes)
 12. [Configuração (config.json)](#12-configuração-configjson)
 13. [API (referência)](#13-api-referência)
@@ -66,7 +66,13 @@ Runtime único: **Node.js puro**, num só ficheiro de servidor, sem `npm install
   2 doses), faltas e canceladas;
 - **Histórico/auditoria**: cada operação fica registada com o posto que a
   executou (aba Histórico);
-- **Exportação PDF**: lista completa, calendário por dia e semana completa;
+- **Exportação PDF e CSV**: lista de utentes, calendário por dia/semana e CSV
+  de utentes/marcações (com filtro de datas) para os relatórios da campanha;
+- **Configuração pela interface** (aba Configuração): horários dos dias úteis e
+  de sábado, intervalo, máximo por hora, dias de encerramento e pasta de backup
+  — validados no servidor, sem editar ficheiros nem reiniciar;
+- **Dias de encerramento** (feriados/férias): o servidor recusa marcações
+  nesses dias e a grelha marca-os como «encerrado»;
 - **Multi-posto sem perdas**: sincronização automática (5 s) e confirmação
   obrigatória em conflitos.
 
@@ -116,7 +122,7 @@ esse posto na auditoria.
 - Importar `.txt` (com relatório de inseridos/duplicados/inválidos);
 - Pesquisar; clicar num utente para ver marcações e editar dados;
 - *Marcar* abre o registo de chamada telefónica (dia, hora, vacinas);
-- Exportar PDF da lista.
+- Exportar PDF ou **CSV** da lista.
 
 ### Aba Calendário semanal
 - Contadores no topo: **programadas**, **administradas**, faltas, canceladas;
@@ -126,7 +132,17 @@ esse posto na auditoria.
   restantes células ficam indisponíveis) e marcar nesse dia pede confirmação;
 - Cores: azul = agendado, verde = administrado, âmbar = faltou,
   cinza = cancelado; **J** = justificada;
-- Exportar PDF (dia / semana completa).
+- Exportar PDF (dia / semana completa) e **CSV** (dia / semana).
+
+### Aba Configuração
+- **Horários** dos dias úteis e de sábado (dois períodos por dia), **intervalo**
+  entre marcações e **máximo por hora**;
+- **Dias de encerramento** (feriados/férias), uma data por linha (AAAA-MM-DD);
+- **Cópia de segurança**: pasta na rede, testar caminho e backup imediato.
+
+Aplica-se logo, sem reiniciar o servidor. Um valor inválido é **recusado com a
+razão** (não é substituído em silêncio) e alterar horários **não move**
+marcações já feitas.
 
 ### Aba Histórico
 Últimas 500 operações: quando, posto, ação e detalhe.
@@ -143,6 +159,7 @@ esse posto na auditoria.
 | Horário | Validado no servidor e no cliente (ex.: recusa 07:00 fora do horário) |
 | Sábado | Só **09:30–12:00** e **15:00–17:00** (períodos próprios em `config.json`); fora deles → `400`. O cliente avisa que é sábado e pede confirmação, e a grelha desativa as horas fora dos períodos |
 | Domingo | Nunca aceita marcações (`400`), mesmo que o dia apareça noutra vista |
+| Dias de encerramento | Datas em `diasFechados` (aba Configuração): o servidor recusa marcações (`400`) e a grelha mostra o dia como «encerrado» |
 
 ## 7. Controlo de concorrência
 
@@ -192,19 +209,25 @@ Carlos Pereira; 945 678 901; gripe
   vezes não duplica;
 - Codificação UTF-8; linhas inválidas reportadas.
 
-## 10. Exportação PDF
+## 10. Exportação (PDF e CSV)
 
-Botões de exportação (lista / calendário) abrem uma janela de impressão —
-escolher a impressora «Guardar como PDF». Os documentos incluem cabeçalho da
-farmácia, data/hora, posto responsável e, no calendário, o resumo semanal de
-programadas vs. administradas e as justificações.
+**PDF** — os botões de exportação (lista / calendário) abrem uma janela de
+impressão: escolher a impressora «Guardar como PDF». Os documentos incluem
+cabeçalho da farmácia, data/hora, posto responsável e, no calendário, o resumo
+semanal de programadas vs. administradas e as justificações.
+
+**CSV** — «Exportar CSV» na lista de utentes e no calendário (dia / semana)
+descarrega um ficheiro com separador «;» e BOM UTF-8 (o Excel em português abre
+com os acentos corretos). O CSV de marcações aceita filtro de datas
+(`desde`/`ate`), útil para os relatórios da campanha; campos com «;» ou aspas
+saem entre aspas duplas.
 
 ## 11. Testes
 
 ```bash
-node testes-cliente.js     # interface (cliente em DOM mínimo): 46 verificações
+node testes-cliente.js     # interface (cliente em DOM mínimo): 68 verificações
 node servidor.js 18090     # numa janela (para a bateria da API)
-node testes.js             # noutra: 136 verificações
+node testes.js             # noutra: 173 verificações
 ```
 
 Cobrem: PIN/sessões (incl. rate-limit), validações, duplicados na importação,
@@ -212,16 +235,23 @@ sobreposições e justificações, `maxPorHora`, estados a libertar horário,
 reagendamento, conflitos de versão e de registo, dois postos em simultâneo,
 eliminações, auditoria, validação de schema na carga, `config.json` inválida
 (avisa e volta aos defeitos, corrigindo o ficheiro) ou ilegível (preserva e não
-arranca), injeção do caminho de dados no backup, backup/exportação, regras de
-**sábado** (períodos próprios) e **domingo** (recusado) e as regressões do
-cliente (métodos HTTP, sincronização com cookie, grelha do calendário, código
-de arranque). Os `testes-cliente.js` executam o `app.js` real (num DOM mínimo)
-e verificam o aviso de sábado, a recusa do domingo, o horário por dia e as
-células indisponíveis da grelha.
+arranca), injeção do caminho de dados no backup, backup/exportação, **alteração
+de configuração pela API** (horários, sábado, intervalo, máximo por hora — com
+recusa do que é inválido e recálculo das horas), **dias de encerramento**
+(marcação e reagendamento recusados), **exportação CSV** (cabeçalho, BOM,
+filtro de datas e escape de «;»/aspas), regras de **sábado** (períodos próprios)
+e **domingo** (recusado) e as regressões do cliente (métodos HTTP,
+sincronização com cookie, grelha do calendário, código de arranque). Os
+`testes-cliente.js` executam o `app.js` real (num DOM mínimo) e verificam o
+aviso de sábado, a recusa do domingo, os dias de encerramento, o horário por
+dia, as células indisponíveis da grelha, o painel de configuração e o URL da
+exportação CSV.
 
 ## 12. Configuração (config.json)
 
-Criado automaticamente junto ao servidor; editável (reiniciar depois):
+Criado automaticamente junto ao servidor; editável no ficheiro (reiniciar
+depois) **ou pela aba Configuração da interface** (aplica-se logo, sem
+reiniciar):
 
 ```json
 {
@@ -235,7 +265,9 @@ Criado automaticamente junto ao servidor; editável (reiniciar depois):
   "sabadoInicio2": "15:00",
   "sabadoFim2": "17:00",
   "intervaloMin": 30,
-  "mostrarSabado": true
+  "mostrarSabado": true,
+  "diasFechados": ["2026-12-08", "2026-12-25"],
+  "pastaBackup": ""
 }
 ```
 
@@ -249,6 +281,8 @@ Criado automaticamente junto ao servidor; editável (reiniciar depois):
   norma não há vacinação nesse dia;
 - `mostrarSabado` — `true` (por omissão) mostra a coluna do sábado no
   calendário; `false` esconde-a (grelha só de 2.ª a 6.ª);
+- `diasFechados` — datas em que a farmácia está fechada (feriados/férias); o
+  servidor recusa marcações nesses dias;
 - o **domingo** nunca aceita marcações.
 
 ## 13. API (referência)
@@ -271,10 +305,11 @@ Autenticação: `Authorization: Bearer <token>` ou cookie `sessao`.
 | POST | `/api/marcacoes` | Criar marcação |
 | PUT | `/api/marcacoes/:id` | Alterar estado / reagendar |
 | DELETE | `/api/marcacoes/:id` | Eliminar |
-| PUT | `/api/config` | Alterar pasta de backup |
+| PUT | `/api/config` | Alterar horários, `intervaloMin`, `maxPorHora`, `mostrarSabado`, `diasFechados` e `pastaBackup` (valida e recusa com `400`) |
 | POST | `/api/backup/testar` | Testar escrita na pasta de backup |
 | POST | `/api/backup` | Backup manual imediato |
 | GET | `/api/exportar` | Descarregar cópia JSON dos dados |
+| GET | `/api/exportar.csv` | CSV para relatórios: `?tipo=utentes\|marcacoes` (+ `&desde=&ate=` opcional) |
 
 Toda a mutação envia `baseVersao`. Respostas:
 
@@ -316,6 +351,8 @@ Toda a mutação envia `baseVersao`. Respostas:
 | «Hora cheia» | `maxPorHora` atingido — ver secção 12 |
 | «Hora fora do horário de sábado» | Ao sábado só há marcações das 09:30–12:00 e das 15:00–17:00 (ver secção 12) |
 | Marcação ao domingo recusada | O domingo não tem horário — escolha outro dia |
+| «A farmácia está encerrada nesse dia» | A data está em «Dias de encerramento» (aba Configuração) — remova-a para voltar a aceitar marcações |
+| «Nenhuma alteração indicada» ao guardar a configuração | Enviou um pedido sem campos conhecidos — use a aba Configuração |
 | Porta ocupada | `node servidor.js 9090` |
 | Popup bloqueada nos PDF | Permitir popups para o endereço do servidor |
 | Dados "desapareceram" | O servidor tem de correr a partir da mesma pasta (`dados.json`) |

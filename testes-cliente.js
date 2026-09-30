@@ -29,9 +29,9 @@ const HORAS_SAB = ["09:30", "10:00", "10:30", "11:00", "11:30", "12:00",
 /* ---- DOM mínimo reutilizado por todos os testes ---- */
 function novoElemento(id) {
   return {
-    id, value: "", textContent: "", innerHTML: "", className: "", hidden: false,
+    id, value: "", textContent: "", innerHTML: "", className: "", hidden: false, checked: false,
     style: {}, children: [],
-    addEventListener() {}, appendChild(c) { this.children.push(c); },
+    addEventListener() {}, appendChild(c) { this.children.push(c); }, click() {},
     classList: { toggle() {}, add() {}, remove() {}, contains() { return false; } }
   };
 }
@@ -48,7 +48,7 @@ function carregar() {
     },
     createElement(tag) { return novoElemento(tag); }
   };
-  const alertas = [], confirmacoes = [];
+  const alertas = [], confirmacoes = [], chamadas = [];
   let resposta = true;
   const sandbox = {
     document, window: {}, location: { reload() {} },
@@ -58,21 +58,32 @@ function carregar() {
     prompt: () => null,
     setInterval: () => 0, clearInterval: () => {},
     setTimeout: () => 0, clearTimeout: () => {},
-    fetch: async () => ({ status: 401, json: async () => ({}) }),
+    fetch: async (url, opt) => {
+      chamadas.push({ url: String(url), method: (opt && opt.method) || "GET", headers: (opt && opt.headers) || {}, body: (opt && opt.body) || "" });
+      if (String(url).startsWith("/api/exportar.csv"))
+        return { status: 200, json: async () => ({}), blob: async () => "blob" };
+      return { status: 401, json: async () => ({}) };
+    },
+    URLSearchParams,
+    URL: { createObjectURL: () => "blob:teste", revokeObjectURL() {} },
     Date, JSON, Math, String, Number, Boolean, Array, Object, RegExp, Promise, Set, Map, Error
   };
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync(path.join(__dirname, "public", "app.js"), "utf8"), sandbox, { filename: "public/app.js" });
   return {
-    sandbox, document, alertas, confirmacoes,
+    sandbox, document, alertas, confirmacoes, chamadas,
     el: id => document.getElementById(id),
     responder(v) { resposta = v; },
     /* estado da aplicação (as variáveis são lexicais: entram por aplicarResposta) */
-    estado(marcacoes) {
+    estado(marcacoes, cfgExtra) {
       sandbox.aplicarResposta({
         versao: 1, utentes: [], marcacoes: marcacoes || [],
-        config: { mostrarSabado: true, maxPorHora: 2 },
+        config: Object.assign({
+          horaInicio: "08:30", horaFim: "12:00", horaInicio2: "14:30", horaFim2: "19:30",
+          sabadoInicio: "09:30", sabadoFim: "12:00", sabadoInicio2: "15:00", sabadoFim2: "17:00",
+          mostrarSabado: true, maxPorHora: 2, intervaloMin: 30, pastaBackup: "", diasFechados: []
+        }, cfgExtra || {}),
         horas: HORAS, horasSabado: HORAS_SAB
       });
       sandbox.irParaSemanaAtual();
@@ -197,6 +208,66 @@ function carregar() {
   S.abrirMarcar("u1", "2099-09-22", null);
   ok("modal de dia útil volta ao horário normal", c.el("modal-conteudo").innerHTML.includes(">08:30<"));
   c.el("modal").hidden = true;
+
+  console.log("\n[Dias de encerramento (cliente)]");
+  c.estado([], { diasFechados: ["2099-10-05"] });
+  ok("horasDoDia devolve [] num dia de encerramento", S.horasDoDia("2099-10-05").length === 0);
+  ok("celulaDisponivel é falso num dia de encerramento", S.celulaDisponivel("2099-10-05", "10:00") === false);
+  ok("a nota diz que a farmácia está encerrada", /encerrada/.test(S.notaDoDia("2099-10-05")));
+  ok("não há opções de hora num dia de encerramento", S.opcoesHoras("2099-10-05", null) === "");
+  const nAl = c.alertas.length, nCf = c.confirmacoes.length;
+  ok("marcar num dia de encerramento é bloqueado", S.confirmarDia("2099-10-05", "marcação") === false);
+  ok("o bloqueio avisa e não chega a pedir confirmação",
+    c.alertas.length === nAl + 1 && /encerrada/.test(c.alertas[c.alertas.length - 1]) && c.confirmacoes.length === nCf);
+  ok("o dia seguinte mantém o horário normal", S.horasDoDia("2099-10-06").length === HORAS.length);
+  ok("lerDiasFechados aceita linhas, vírgulas e pontos e vírgulas, sem duplicar",
+    JSON.stringify(S.lerDiasFechados("2026-12-08\n2026-12-25; 2026-12-08, 2026-01-01")) === JSON.stringify(["2026-12-08", "2026-12-25", "2026-01-01"]));
+  ok("lerDiasFechados ignora linhas vazias", JSON.stringify(S.lerDiasFechados("  \n\n  2026-12-08  \n")) === JSON.stringify(["2026-12-08"]));
+
+  console.log("\n[Grelha com um dia de encerramento]");
+  const seg2 = S.segundaDe(new Date());
+  const quarta = new Date(seg2); quarta.setDate(quarta.getDate() + 2);
+  const isoQuarta = S.iso(quarta);
+  c.estado([], { diasFechados: [isoQuarta] });
+  const htmlFechado = c.el("grelha").innerHTML;
+  ok("o dia encerrado aparece marcado no cabeçalho", htmlFechado.includes("encerrado"));
+  ok("nenhuma célula do dia encerrado é clicável", !htmlFechado.includes(`clicarCelula('${isoQuarta}',`));
+  ok("as células do dia encerrado ficam indisponíveis", htmlFechado.includes("cal-celula indisponivel"));
+
+  console.log("\n[Painel de configuração (cliente)]");
+  c.estado([], { diasFechados: ["2026-12-08", "2026-12-25"] });
+  ok("o painel mostra os horários atuais", c.el("g-horaInicio").value === "08:30" && c.el("g-sabadoFim2").value === "17:00");
+  ok("o painel mostra os dias de encerramento (um por linha)", c.el("g-diasFechados").value === "2026-12-08\n2026-12-25");
+  ok("o painel mostra intervalo e máximo por hora", c.el("g-intervaloMin").value === "30" && c.el("g-maxPorHora").value === "2");
+  let nCh = c.chamadas.length;
+  await S.guardarConfigUI();
+  let chCfg = c.chamadas.slice(nCh).filter(x => x.url === "/api/config").pop();
+  ok("guardar o painel envia tudo num PUT /api/config", !!chCfg && chCfg.method === "PUT");
+  ok("o corpo leva horários, dias de encerramento e pasta de backup",
+    !!chCfg && /"horaInicio":"08:30"/.test(chCfg.body) && /"diasFechados":\["2026-12-08","2026-12-25"\]/.test(chCfg.body) && /"pastaBackup"/.test(chCfg.body) && /"intervaloMin":30/.test(chCfg.body));
+  c.el("g-maxPorHora").value = "0";
+  nCh = c.chamadas.length;
+  const nAl2 = c.alertas.length;
+  await S.guardarConfigUI();
+  ok("o painel recusa um máximo por hora inválido sem enviar nada",
+    c.alertas.length === nAl2 + 1 && /máximo por hora/.test(c.alertas[c.alertas.length - 1]) && c.chamadas.length === nCh);
+  c.el("g-maxPorHora").value = "2";
+  c.el("g-horaFim").value = "";
+  const nAl3 = c.alertas.length;
+  await S.guardarConfigUI();
+  ok("o painel exige todos os horários antes de guardar",
+    c.alertas.length === nAl3 + 1 && /Preencha todos os horários/.test(c.alertas[c.alertas.length - 1]));
+  c.el("g-horaFim").value = "12:00";
+
+  console.log("\n[Exportação CSV (cliente)]");
+  await S.exportarCSV("marcacoes", "2099-10-01", "2099-10-07");
+  const chCsv = c.chamadas.filter(x => x.url.startsWith("/api/exportar.csv")).pop();
+  ok("exportarCSV pede o endpoint com tipo e datas",
+    !!chCsv && chCsv.url.includes("tipo=marcacoes") && chCsv.url.includes("desde=2099-10-01") && chCsv.url.includes("ate=2099-10-07"));
+  await S.exportarCSV("utentes");
+  const chUt = c.chamadas.filter(x => x.url.startsWith("/api/exportar.csv")).pop();
+  ok("exportarCSV de utentes vai sem filtro de datas", !!chUt && chUt.url === "/api/exportar.csv?tipo=utentes");
+  ok("a exportação avisa o utilizador", /CSV exportado/.test(c.el("banner-txt").textContent));
 
   console.log("\n════════════════════════════════════════");
   console.log(`  Resultado: ${passou} passaram, ${falhou} falharam`);
