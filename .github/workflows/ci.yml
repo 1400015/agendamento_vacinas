@@ -1,0 +1,32 @@
+name: CI
+on:
+  push:
+  pull_request:
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    env:
+      TZ: Europe/Lisbon
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Sintaxe (node --check)
+        run: |
+          node --check servidor.js
+          node --check restaurar.js
+          node --check testes.js
+          for f in src/*.js; do node --check "$f"; done
+      - name: Arrancar servidor de teste
+        run: |
+          node servidor.js 18090 &
+          sleep 2
+          npx --yes wait-on http://localhost:18090/api/estado --timeout 15000 || true
+      - name: Bateria de testes
+        run: node testes.js
+      - name: Parar servidor
+        if: always()
+        run: |
+          kill %1 2>/dev/null || pkill -f "node servidor.js" || true

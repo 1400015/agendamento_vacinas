@@ -239,6 +239,26 @@ function ok(nome, cond) {
   ok("histórico regista o posto", r.d.historico.some(h => h.posto === "Teste"));
   ok("histórico regista ações", ["criar utente", "agendar", "reagendar"].every(a => r.d.historico.some(h => h.acao === a)));
 
+  /* ---- validação de schema na carga (borda: edição manual de dados.json) ---- */
+  console.log("\n[Validação de schema na carga]");
+  const fsBorda = require("fs");
+  const dadosAtuais = fsBorda.readFileSync("dados.json", "utf8");
+  const jBorda = JSON.parse(dadosAtuais);
+  const idBorda = jBorda.utentes[0].id;
+  jBorda.utentes.push({ id: "x1", nome: "", contacto: "911" });              // sem nome → ignorado
+  jBorda.utentes.push({ nome: "Sem ID" });                                  // sem id → ignorado
+  jBorda.marcacoes.push({ id: "m1", utenteId: "nao-existe", data: "2099-09-22", hora: "10:00" }); // órfã → ignorada
+  jBorda.marcacoes.push({ id: "m2", utenteId: idBorda, data: "2099-13-99", hora: "10:00" });     // data inválida → ignorada
+  fsBorda.writeFileSync("dados.json", JSON.stringify(jBorda));
+  // arrancar uma instância curta: ela carrega os dados corrompidos, valida e
+  // persiste o resultado saneado antes de a matarmos pelo timeout
+  const srvBorda = require("child_process").spawnSync(process.execPath, ["servidor.js", "18098"], { encoding: "utf8", timeout: 6000 });
+  fsBorda.writeFileSync("dados.json", dadosAtuais);
+  const saneado = JSON.parse(fsBorda.readFileSync("dados.json", "utf8"));
+  ok("registo sem nome/sem id ignorado no arranque", !saneado.utentes.some(u => u.id === "x1") && !saneado.utentes.some(u => u.nome === "Sem ID"));
+  ok("marcação órfã e com data inválida ignoradas no arranque", !saneado.marcacoes.some(m => m.id === "m1") && !saneado.marcacoes.some(m => m.id === "m2"));
+  ok("dados válidos intactos após saneamento", saneado.utentes.some(u => u.id === idBorda));
+
   console.log("\n[Login falhado é auditado]");
   const antes = (await api("/api/historico")).d.historico.filter(h => h.acao === "login falhado").length;
   const tokSave = token; token = null;

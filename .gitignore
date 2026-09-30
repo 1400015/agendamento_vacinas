@@ -9,3 +9,6 @@ config.json.corrompida-*
 config-pin.json.bak
 *.tmp
 node_modules/
+servidor.log
+servidor.log.antigo
+dados.json.antes-restauro
