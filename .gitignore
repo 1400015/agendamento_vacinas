@@ -4,3 +4,8 @@ config-pin.json
 codigo-arranque.txt
 backups/
 dados.json.corrompida-*
+dados.json.tmp
+config.json.corrompida-*
+config-pin.json.bak
+*.tmp
+node_modules/

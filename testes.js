@@ -239,6 +239,14 @@ function ok(nome, cond) {
   ok("histórico regista o posto", r.d.historico.some(h => h.posto === "Teste"));
   ok("histórico regista ações", ["criar utente", "agendar", "reagendar"].every(a => r.d.historico.some(h => h.acao === a)));
 
+  console.log("\n[Login falhado é auditado]");
+  const antes = (await api("/api/historico")).d.historico.filter(h => h.acao === "login falhado").length;
+  const tokSave = token; token = null;
+  await api("/api/login", { pin: "errado-auditoria", posto: "Sonda" });
+  token = tokSave;
+  const depois = (await api("/api/historico")).d.historico.filter(h => h.acao === "login falhado").length;
+  ok("tentativa de PIN errado fica no histórico (posto/IP)", depois === antes + 1);
+
   /* ---- rate-limit do login (2026-09-29) ---- */
   console.log("\n[Rate-limit do login]");
   const tokBackup = token; token = null;
@@ -251,6 +259,45 @@ function ok(nome, cond) {
   const rr429 = await api("/api/login", { pin: "errada-final", posto: "BF" });
   ok("bloqueio persiste na mesma janela", rr429.s === 429);
   token = tokBackup;
+
+  /* ---- correções da auditoria MiMo ---- */
+  console.log("\n[Regras de marcação e estado]");
+  r = await api("/api/marcacoes", { baseVersao: base, utenteId: maria.id, data: "2099-09-25", hora: "09:00", vacinas: ["G"] });
+  ok("criar marcação base p/ testes de duplicação", r.s === 200);
+  base = r.d.versao;
+  const dupBase = r.d.marcacoes[r.d.marcacoes.length - 1];
+  // deslocamento para cima de marcação ativa do MESMO utente na mesma hora
+  const outraMaria = (await api("/api/dados")).d.marcacoes.find(m => m.utenteId === maria.id && m.estado === "agendado" && m.id !== dupBase.id);
+  if (outraMaria) {
+    r = await api("/api/marcacoes/" + outraMaria.id, { baseVersao: base, rev: outraMaria.rev, novaData: dupBase.data, novaHora: dupBase.hora }, "PUT");
+    ok("mover para cima de marcação ativa do mesmo utente recusado (409)", r.s === 409);
+    base = (await api("/api/dados")).d.versao;
+  }
+  r = await api("/api/marcacoes/" + dupBase.id, { baseVersao: base, rev: dupBase.rev, estado: null }, "PUT");
+  ok("estado:null recusado (400) — nunca corrompe o registo", r.s === 400);
+  r = await api("/api/marcacoes/" + dupBase.id, { baseVersao: base, rev: dupBase.rev, reagendar: true, novaData: "2099-09-26", novaHora: "10:00", justificada: true }, "PUT");
+  ok("reagendar justificado sem motivo recusado (400) — coerente com POST", r.s === 400);
+
+  console.log("\n[304 leve no /api/dados]");
+  const vAtual = (await api("/api/dados")).d.versao;
+  const r304 = await fetch(B + "/api/dados?versao=" + vAtual, { headers: { "Authorization": "Bearer " + token } });
+  ok("versão igual → 304 (poll leve)", r304.status === 304);
+  const r200 = await fetch(B + "/api/dados?versao=" + (vAtual - 1), { headers: { "Authorization": "Bearer " + token } });
+  ok("versão diferente → 200 completo", r200.status === 200);
+  const r304b = await fetch(B + "/api/dados?versao=" + vAtual, { headers: { "Authorization": "Bearer " + token } });
+  ok("304 persiste enquanto nada muda", r304b.status === 304);
+
+  console.log("\n[Config corrompida e estáticos]");
+  const fsCfg = require("fs");
+  const cfgBak = fsCfg.readFileSync("config.json", "utf8");
+  fsCfg.writeFileSync("config.json", "\uFEFF{ixe}");
+  const arranca = require("child_process").spawnSync(process.execPath, ["servidor.js", "18099"], { encoding: "utf8", timeout: 5000 });
+  fsCfg.writeFileSync("config.json", cfgBak);
+  ok("config ilegível (BOM/lixo): servidor recusa arrancar e preserva", arranca.status !== 0 && /ILEG/.test(arranca.stdout + arranca.stderr));
+  const cfgCorrompida = fsCfg.readdirSync(".").some(f => f.startsWith("config.json.corrompida-"));
+  if (cfgCorrompida) { for (const f of fsCfg.readdirSync(".")) if (f.startsWith("config.json.corrompida-")) fsCfg.unlinkSync(f); }
+  const pgQuery = await fetch(B + "/index.html?x=1");
+  ok("estático com query string servido (sem 404)", pgQuery.status === 200);
 
   /* ---- corpo demasiado grande responde 413 (não pendura o cliente) ---- */
   console.log("\n[Corpo demasiado grande]");

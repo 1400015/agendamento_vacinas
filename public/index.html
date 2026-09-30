@@ -123,11 +123,12 @@ body{background:#fff}main,.painel{max-width:none}}
 
   <section id="tab-l" class="painel">
     <div class="barra">
-      <div class="campo"><label>Nome</label><input id="f-nome" placeholder="Nome do utente" style="width:220px"></div>
-      <div class="campo"><label>Contacto</label><input id="f-contacto" placeholder="Telefone / email" style="width:180px"></div>
+      <div class="campo"><label>Nome</label><input id="f-nome" placeholder="Nome do utente" style="width:220px" maxlength="120"></div>
+      <div class="campo"><label>Contacto</label><input id="f-contacto" placeholder="Telefone / email" style="width:180px" maxlength="60"></div>
       <div class="campo"><label>Vacina</label>
         <select id="f-vacina"><option value="G">Gripe (G)</option><option value="C">COVID-19 (C)</option><option value="G+C">Ambas (G+C)</option></select>
       </div>
+      <div class="campo"><label>Observações</label><input id="f-obs" placeholder="opcional" style="width:180px" maxlength="200"></div>
       <button class="btn primario" onclick="addUtente()">Adicionar</button>
     </div>
     <div class="barra">
@@ -226,6 +227,8 @@ async function initPin(){
     document.getElementById("pin-codigo").hidden=!!r.d.pinDefinido;
   }catch(e){document.getElementById("pin-estado").textContent="Servidor indisponível. Verifique se o servidor está a correr.";}}
 async function entrar(){
+  try{await entrarInterno();}catch(e){document.getElementById("pin-erro").textContent="Servidor indisponível — verifique a ligação.";}}
+async function entrarInterno(){
   const pin=document.getElementById("pin-input").value;
   const p=document.getElementById("pin-posto").value.trim();
   const erro=document.getElementById("pin-erro");
@@ -257,8 +260,9 @@ function sair(){api("/api/logout",{});token=null;location.reload();}
 /* ============ sincronização ============ */
 async function sincronizar(){
   if(!token&&document.cookie.indexOf("sessao=")<0)return;
-  try{const r=await api("/api/dados");
+  try{const r=await api("/api/dados"+(versao>0?"?versao="+versao:""));
     if(r.s===401){sair();return;}
+    if(r.s===304){ligOk(true);return;}
     if(r.s!==200)throw 0;
     versao=r.d.versao;utentes=r.d.utentes;marcacoes=r.d.marcacoes;horas=r.d.horas;config=r.d.config;
     if(!semanaBase)semanaBase=segundaDe(new Date());
@@ -346,9 +350,10 @@ async function addUtente(){
   const contacto=document.getElementById("f-contacto").value.trim();
   const vacina=document.getElementById("f-vacina").value;
   if(!nome||!contacto){alert("Preencha o nome e o contacto.");return;}
-  const r=await mutacao("/api/utentes",{nome,contacto,vacina},
+  const obs=document.getElementById("f-obs").value.trim();
+  const r=await mutacao("/api/utentes",{nome,contacto,vacina,obs},
     `O utente <b>${esc(nome)}</b> vai ser adicionado à lista.`);
-  if(r.ok){document.getElementById("f-nome").value="";document.getElementById("f-contacto").value="";}
+  if(r.ok){document.getElementById("f-nome").value="";document.getElementById("f-contacto").value="";document.getElementById("f-obs").value="";}
 }
 function importarTxt(ev){
   const f=ev.target.files[0];if(!f)return;
@@ -389,6 +394,7 @@ function abrirEstadoUtente(id){
       <div class="campo"><label>Contacto</label><input id="e-contacto" value="${esc(u.contacto)}"></div>
       <div class="campo"><label>Vacina</label><select id="e-vacina">
         ${["G","C","G+C"].map(v=>`<option value="${v}" ${u.vacina===v?"selected":""}>${VAC[v]}</option>`).join("")}</select></div>
+      <div class="campo"><label>Observações</label><input id="e-obs" value="${esc(u.obs||"")}" maxlength="200" style="width:100%"></div>
     </div>
     <div class="botoes">
       <button class="btn" onclick="apagarUtente('${u.id}');fecharModal()">Apagar</button>
@@ -397,7 +403,7 @@ function abrirEstadoUtente(id){
     </div>`);
 }
 async function guardarUtente(id,rev){
-  const r=await mutacao("/api/utentes/"+id,{rev,nome:val("e-nome"),contacto:val("e-contacto"),vacina:val("e-vacina")},
+  const r=await mutacao("/api/utentes/"+id,{rev,nome:val("e-nome"),contacto:val("e-contacto"),vacina:val("e-vacina"),obs:val("e-obs")},
     `Os dados de <b>${esc(val("e-nome"))}</b> vão ser atualizados.`,"PUT");
   if(r.ok)fecharModal();
 }
@@ -493,7 +499,7 @@ function renderStats(){
      <span class="stat">Faltas: <b>${faltas}</b></span>
      <span class="stat">Canceladas: <b>${canc}</b></span>`;
 }
-function diasDaSemana(){const a=[];for(let i=0;i<6;i++){const d=new Date(semanaBase);d.setDate(d.getDate()+i);a.push(iso(d));}return a;}
+function diasDaSemana(){const n=(config.mostrarSabado===false)?5:6;const a=[];for(let i=0;i<n;i++){const d=new Date(semanaBase);d.setDate(d.getDate()+i);a.push(iso(d));}return a;}
 
 function renderUtentes(){
   const q=(document.getElementById("pesquisa").value||"").toLowerCase();
@@ -539,7 +545,7 @@ function renderCal(){
   document.getElementById("grelha").innerHTML=html;
 }
 function clicarCelula(d,h){
-  const disponiveis=utentes.filter(u=>!marcacoes.some(m=>m.utenteId===u.id&&m.data===d&&m.hora===h&&m.estado==="agendado"));
+  const disponiveis=utentes.filter(u=>!marcacoes.some(m=>m.utenteId===u.id&&m.data===d&&m.hora===h&&["agendado","administrado"].includes(m.estado)));
   if(!disponiveis.length){alert("Sem utentes disponíveis para esta hora (todos os utentes já têm marcação neste horário).");return;}
   abrirModal(`<h3>Marcar em ${fmtData(d)} às ${h}</h3>
     <label class="mut">Utente</label>
@@ -629,7 +635,8 @@ function exportarCalPDF(modo){
   const diaEscolhido=selDia?selDia.value:isoHoje();
   const dias=(modo==="dia")?[diaEscolhido||isoHoje()]:diasDaSemana();
   let prog=0,feitas=0;
-  w.document.write(`<div class="info"><b>Semana de ${fmtData(diasDaSemana()[0])}</b> · Programadas: <b id="p"></b> · Administradas: <b id="f"></b></div>`);
+  const rotulo=(modo==="dia")?`Dia ${fmtData(dias[0])}`:`Semana de ${fmtData(diasDaSemana()[0])} a ${fmtData(diasDaSemana()[diasDaSemana().length-1])}`;
+  w.document.write(`<div class="info"><b>${rotulo}</b> · Programadas: <b id="p"></b> · Administradas: <b id="f"></b></div>`);
   dias.forEach(d=>{
     const ms=marcacoes.filter(m=>m.data===d);
     w.document.write(`<h2>${fmtData(d)}</h2>`);

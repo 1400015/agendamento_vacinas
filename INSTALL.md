@@ -118,7 +118,9 @@ arranque, porque é aí que ficam os dados (`dados.json`).
    ```
 
 3. Testar: abrir o navegador **neste computador** em `http://localhost:8080`
-   — deve aparecer o ecrã de PIN da Farmácia Boavista.
+   — deve aparecer o ecrã de PIN da Farmácia Boavista. No primeiro arranque,
+   o terminal mostra também o **código de arranque** (6 dígitos) necessário
+   para definir o PIN; depois disso já não é preciso.
 
 Para parar o servidor: na janela do terminal, pressionar `Ctrl + C`.
 

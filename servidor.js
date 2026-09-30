@@ -36,17 +36,48 @@ const FICHEIRO_CONFIG = path.join(RAIZ, "config.json");
 const PASTA_PUBLICA = path.join(RAIZ, "public");
 
 /* ------------------------------------------------------------- config ----- */
+function lerJSONcBOM(f) {
+  let txt = fs.readFileSync(f, "utf8");
+  if (txt.charCodeAt(0) === 0xFEFF) txt = txt.slice(1);   // BOM UTF-8 (Notepad/PowerShell)
+  return JSON.parse(txt);
+}
+function validarHoraTexto(v) {
+  if (typeof v !== "string" || !/^\d{2}:\d{2}$/.test(v)) return null;
+  const [h, m] = v.split(":").map(Number);
+  if (h > 23 || m > 59) return null;
+  return v;
+}
 function carregarConfig() {
   let cfg = {};
-  try { cfg = JSON.parse(fs.readFileSync(FICHEIRO_CONFIG, "utf8")); } catch (e) {}
+  let ilegivel = false;
+  if (fs.existsSync(FICHEIRO_CONFIG)) {
+    try { cfg = lerJSONcBOM(FICHEIRO_CONFIG); } catch (e) { ilegivel = true; }
+  }
+  if (ilegivel) {
+    // como com dados.json: preservar e parar — nunca regravar por cima
+    const preservado = FICHEIRO_CONFIG + ".corrompida-" + new Date().toISOString().replace(/[:.]/g, "-");
+    try { fs.renameSync(FICHEIRO_CONFIG, preservado); } catch (e2) {}
+    console.error("CONFIG ILEGÍVEL — foi preservada como " + preservado);
+    console.error("Corrija-a (ou apague-a para voltar aos valores por omissão) e volte a arrancar.");
+    process.exit(1);
+  }
   const def = {
     maxPorHora: Number(cfg.maxPorHora) || 2,
-    horaInicio: cfg.horaInicio || "09:00",
-    horaFim: cfg.horaFim || "18:30",
+    horaInicio: validarHoraTexto(cfg.horaInicio) || "09:00",
+    horaFim: validarHoraTexto(cfg.horaFim) || "18:30",
     intervaloMin: [15, 30, 60].includes(Number(cfg.intervaloMin)) ? Number(cfg.intervaloMin) : 30,
     mostrarSabado: cfg.mostrarSabado !== undefined ? !!cfg.mostrarSabado : true,
     pastaBackup: typeof cfg.pastaBackup === "string" ? cfg.pastaBackup.trim() : ""
   };
+  if (validarHoraTexto(cfg.horaInicio) === null && cfg.horaInicio !== undefined)
+    console.error("AVISO: horaInicio inválida («" + cfg.horaInicio + "») — a usar 09:00.");
+  if (validarHoraTexto(cfg.horaFim) === null && cfg.horaFim !== undefined)
+    console.error("AVISO: horaFim inválida («" + cfg.horaFim + "») — a usar 18:30.");
+  const [a1, b1] = def.horaInicio.split(":").map(Number), [a2, b2] = def.horaFim.split(":").map(Number);
+  if (a2 * 60 + b2 < a1 * 60 + b1 + def.intervaloMin) {
+    console.error("AVISO: horário sem slots válidos (" + def.horaInicio + "–" + def.horaFim + " com intervalo " + def.intervaloMin + " min) — a usar 09:00–18:30.");
+    def.horaInicio = "09:00"; def.horaFim = "18:30";
+  }
   let atual = "";
   try { atual = fs.readFileSync(FICHEIRO_CONFIG, "utf8"); } catch (e) {}
   const novo = JSON.stringify(def, null, 2);
@@ -96,6 +127,7 @@ function carregarDados() {
 function persistir() {
   const tmp = FICHEIRO_DADOS + ".tmp";
   fs.writeFileSync(tmp, JSON.stringify(dados, null, 1));
+  try { fs.chmodSync(tmp, 0o600); } catch (e) {}   // dados de saúde: só o dono lê
   fs.renameSync(tmp, FICHEIRO_DADOS);
 }
 function bumpVersao() { dados.versao += 1; }
@@ -243,12 +275,17 @@ async function definirPin(pin) {
   fs.writeFileSync(FICHEIRO_PIN, JSON.stringify({ sal: b64(sal), iv: b64(iv), ver: b64(new Uint8Array(ver)) }));
 }
 async function verificarPin(pin) {
+  let cfg;
   try {
-    const cfg = JSON.parse(fs.readFileSync(FICHEIRO_PIN, "utf8"));
+    cfg = lerJSONcBOM(FICHEIRO_PIN);
     const k = await derivarChave(pin, unb64(cfg.sal));
     await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(cfg.iv) }, k, unb64(cfg.ver));
     return true;
-  } catch (e) { return false; }
+  } catch (e) {
+    // distinguir PIN errado de ficheiro corrompido: sem os campos, é o ficheiro
+    if (!cfg || !cfg.sal || !cfg.iv || !cfg.ver) return "corrompido";
+    return false;
+  }
 }
 
 /* ------------------------------------------------------------ sessões ----- */
@@ -332,7 +369,12 @@ async function api(req, res, corpo) {
     if (!pinDefinido()) return resp(400, { erro: "PIN ainda não definido." });
     const posto = String(corpo.posto || "").trim();
     if (!posto) return resp(400, { erro: "Indique o nome do posto (ex.: Posto 1)." });
-    if (!(await verificarPin(String(corpo.pin || "")))) return resp(401, { erro: "PIN incorreto." });
+    const verPin = await verificarPin(String(corpo.pin || ""));
+    if (verPin === "corrompido") return resp(500, { erro: "config-pin.json está corrompido — pare o servidor, apague-o e volte a definir o PIN (os dados dos utentes ficam intactos)." });
+    if (verPin !== true) {
+      registar(ipDe(req), "login falhado", "PIN", "posto=" + String(corpo.posto || "?"));
+      return resp(401, { erro: "PIN incorreto." });
+    }
     rateLimitLimpar(req);
     const t = novaSessao(posto);
     return resp(200, { ok: true, token: t, posto }, `sessao=${t}; Path=/; HttpOnly; SameSite=Strict; Max-Age=28800`);
@@ -347,8 +389,12 @@ async function api(req, res, corpo) {
   const posto = sessao.posto;
 
   /* ---------- leitura ---------- */
-  if (rota === "/api/dados" && req.method === "GET")
+  if (rota === "/api/dados" && req.method === "GET") {
+    const v = Number((req.url.split("versao=")[1] || "").split("&")[0]);
+    if (Number.isInteger(v) && v === dados.versao)
+      return resp(304, { versao: dados.versao });
     return resp(200, { versao: dados.versao, utentes: dados.utentes, marcacoes: dados.marcacoes, config: CFG, horas: HORAS, posto });
+  }
 
   if (rota === "/api/historico" && req.method === "GET")
     return resp(200, { versao: dados.versao, historico: dados.historico.slice(-500).reverse() });
@@ -522,8 +568,9 @@ async function api(req, res, corpo) {
     if (!m) return resp(409, { erro: "Marcação eliminada noutro posto." });
     if (Number(corpo.rev) !== m.rev)
       return resp(409, { erro: "conflito", motivo: "registo", atual: m, versao: dados.versao, utentes: dados.utentes, marcacoes: dados.marcacoes });
+    if (corpo.estado === null) return resp(400, { erro: "Estado inválido." });
     const estado = corpo.estado !== undefined ? corpo.estado : m.estado;
-    if (estado !== null && !ESTADOS.includes(estado)) return resp(400, { erro: "Estado inválido." });
+    if (!ESTADOS.includes(estado)) return resp(400, { erro: "Estado inválido." });
     const nd = corpo.novaData !== undefined ? validarData(corpo.novaData) : null;
     const nh = corpo.novaHora !== undefined ? validarHora(corpo.novaHora) : null;
     if ((corpo.novaData || corpo.novaHora) && !(nd && nh))
@@ -532,9 +579,13 @@ async function api(req, res, corpo) {
 
     if (reagendar && nd && nh) {
       // marcação nova nasce 'agendada'; a antiga liberta a hora
+      if (dados.marcacoes.some(x => x.utenteId === m.utenteId && x.data === nd && x.hora === nh && OCUPAM.includes(x.estado) && x.id !== m.id))
+        return resp(409, { erro: "Este utente já tem marcação ativa nessa hora." });
       const ocup = ocupantes(nd, nh, m.id);
       if (ocup.length >= CFG.maxPorHora || (ocup.length > 0 && !corpo.justificada))
         return resp(409, { erro: "Nova hora ocupada noutro posto.", motivo: "slot_ocupado", ocupantes: ocup.map(o => ({ id: o.id, nome: utenteDe(o.utenteId) })) });
+      if (corpo.justificada && !String(corpo.motivo || "").trim())
+        return resp(400, { erro: "Exceção justificada exige motivo." });
       const nova = { id: crypto.randomUUID(), utenteId: m.utenteId, data: nd, hora: nh, vacinas: m.vacinas,
         estado: "agendado", justificada: !!corpo.justificada, motivo: String(corpo.motivo || "").trim(),
         rev: 1, criadoEm: agora(), criadoPor: posto, historico: [{ quando: agora(), acc: `reagendada de ${m.data} ${m.hora}`, posto }] };
@@ -557,7 +608,9 @@ async function api(req, res, corpo) {
     }
 
     // alteração na própria marcação (estado e/ou deslocação)
-    if (nd && nh) {
+    if (nd && nh && (nd !== m.data || nh !== m.hora)) {
+      if (dados.marcacoes.some(x => x.utenteId === m.utenteId && x.data === nd && x.hora === nh && OCUPAM.includes(x.estado) && x.id !== m.id))
+        return resp(409, { erro: "Este utente já tem marcação ativa nessa hora." });
       const ocup = ocupantes(nd, nh, m.id);
       if (ocup.length >= CFG.maxPorHora || (ocup.length > 0 && !corpo.justificada))
         return resp(409, { erro: "Hora destino ocupada.", motivo: "slot_ocupado", ocupantes: ocup.map(o => ({ id: o.id, nome: utenteDe(o.utenteId) })) });
@@ -617,7 +670,8 @@ const servidor = http.createServer((req, res) => {
   if (req.url === "/" || req.url === "/index.html") return servirFicheiro(res, path.join(PASTA_PUBLICA, "index.html"));
   if (req.url === "/exemplo-utentes.txt") return servirFicheiro(res, path.join(RAIZ, "exemplo-utentes.txt"));
   if (req.url === "/favicon.ico") { res.writeHead(204); res.end(); return; }
-  servirFicheiro(res, path.join(PASTA_PUBLICA, path.normalize(req.url).replace(/^([.][.][/\\])+/g, "")));
+  const rotaEstatica = req.url.split("?")[0];
+  servirFicheiro(res, path.join(PASTA_PUBLICA, path.normalize(rotaEstatica).replace(/^([.][.][/\\])+/g, "")));
 });
 
 servidor.listen(PORTA, "0.0.0.0", () => {
