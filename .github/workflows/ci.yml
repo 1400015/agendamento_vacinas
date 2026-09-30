@@ -23,14 +23,17 @@ jobs:
           for f in src/*.js; do node --check "$f"; done
       - name: Testes de interface do cliente (sem servidor)
         run: node testes-cliente.js
-      - name: Arrancar servidor de teste
-        run: |
-          node servidor.js 18090 &
-          sleep 2
-          npx --yes wait-on http://localhost:18090/api/estado --timeout 15000 || true
       - name: Bateria de testes (API)
-        run: node testes.js
-      - name: Parar servidor
-        if: always()
         run: |
-          kill %1 2>/dev/null || pkill -f "node servidor.js" || true
+          # servidor e bateria no MESMO passo: processos de fundo de passos
+          # anteriores não sobrevivem de forma fiável entre passos no runner
+          node servidor.js 18090 &
+          SRV=$!
+          for i in $(seq 1 20); do
+            curl -sf http://127.0.0.1:18090/api/estado >/dev/null && break
+            sleep 1
+          done
+          node testes.js
+          RC=$?
+          kill $SRV 2>/dev/null || true
+          exit $RC
