@@ -40,6 +40,9 @@ function validarMarcacao(m, idsUtentes, avisos) {
   if (m.grupo && !extras) { avisos.push(`marcação ${m.id.slice(0, 8)} com grupo inválido — ignorado`); }
   return Object.assign({}, m, {
     grupo: extras ? { extras, vacinas: Array.isArray(m.grupo.vacinas) && m.grupo.vacinas.length ? m.grupo.vacinas : ["G"] } : undefined,
+    grupoId: typeof m.grupoId === "string" && m.grupoId ? m.grupoId : undefined,
+    pessoa: typeof m.pessoa === "string" && m.pessoa ? m.pessoa : "",
+    administradas: Array.isArray(m.administradas) ? m.administradas.filter(v => v === "G" || v === "C") : undefined,
     vacinas: normalizarSlots(m.vacinas),
     estado,
     justificada: !!m.justificada,

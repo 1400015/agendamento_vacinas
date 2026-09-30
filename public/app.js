@@ -263,19 +263,88 @@ async function confirmarMarcar(id){
 function abrirEstadoMarcacao(mid){
   const m=marcacoes.find(x=>x.id===mid);if(!m)return;
   const u=utenteDe(m.utenteId);
+  /* reserva múltipla desdobrada: cada sub-marcação é gerida individualmente */
+  const grupo=m.grupoId?marcacoes.filter(x=>x.grupoId===m.grupoId):null;
+  if(grupo){
+    abrirModal(`<h3>${esc(u.nome)} — ${m.data} ${m.hora} · reserva múltipla</h3>
+      <p class="mut">${grupo.length} pessoa(s) nesta marcação de grupo — cada uma pode ser concluída, alterada, adiada ou cancelada individualmente.</p>
+      <table><thead><tr><th>Pessoa</th><th>Vacinas</th><th>Estado</th><th class="sem-print">Ações</th></tr></thead><tbody>
+      ${grupo.map(sm=>`<tr><td>${sm.pessoa==="titular"?esc(u.nome):esc(sm.pessoa)}</td>
+        <td>${sm.vacinas.join("+")}${sm.administradas&&sm.administradas.length?` <span class="mut">(tomou ${sm.administradas.join("+")})</span>`:""}</td>
+        <td><span class="badge b-${sm.estado}">${EST[sm.estado]}</span></td>
+        <td class="sem-print"><button class="btn mini" onclick="abrirSub('${sm.id}')">Gerir</button></td></tr>`).join("")}
+      </tbody></table>
+      <div class="botoes" style="margin-top:10px">
+        <button class="btn" onclick="fecharModal()">Fechar</button>
+      </div>`);
+    return;
+  }
   const outras=marcacoes.filter(x=>x.id!==mid&&x.data===m.data&&x.hora===m.hora&&["agendado","administrado"].includes(x.estado));
   abrirModal(`<h3>${esc(u.nome)} — ${m.data} ${m.hora}</h3>
-    <p class="mut">Vacinas: ${m.vacinas.join(" + ")} · criada por ${esc(m.criadoPor||"?")}${m.grupo&&m.grupo.extras?` · +${m.grupo.extras} acompanhante(s) — ${m.grupo.vacinas.join(" + ")}`:""}${m.justificada?` · <span class="just">justificada: ${esc(m.motivo)}</span>`:""}</p>
+    <p class="mut">Vacinas: ${m.vacinas.join(" + ")} · criada por ${esc(m.criadoPor||"?")}${m.pessoa?` · ${esc(m.pessoa)}`:""}${m.justificada?` · <span class="just">justificada: ${esc(m.motivo)}</span>`:""}${m.administradas&&m.administradas.length?` · <span class="okk">administradas: ${m.administradas.join(" + ")}</span>`:""}</p>
     ${outras.length?`<p class="just">Hora partilhada com: ${outras.map(o=>esc(utenteDe(o.utenteId).nome)).join(", ")}</p>`:""}
-    <label class="mut">Estado</label>
+    <div class="botoes">
+      <button class="btn primario" onclick="concluir('${m.id}',${m.rev})">✓ Concluído</button>
+      <button class="btn" onclick="abrirNaoConcluido('${m.id}',${m.rev})">Não concluído / alterado…</button>
+      <button class="btn" onclick="abrirSub('${m.id}')">Reagendar / gerir</button>
+      <button class="btn" onclick="fecharModal()">Fechar</button>
+    </div>
+    ${modalAdministradas(m)}
+    <div id="nao-concluido" hidden>
+      <label class="mut">O que aconteceu?</label>
+      <select id="x-estado">${ESTADOS_UI().filter(e=>e!=="administrado").map(e=>`<option value="${e}" ${m.estado===e?"selected":""}>${EST[e]}</option>`).join("")}</select>
+      <div id="nc-detalhe" style="margin-top:8px"></div>
+    </div>
+  `);
+}
+/* caixa de "o que foi efetivamente administrado" — difere quando a marcação tem as duas vacinas */
+function modalAdministradas(m){
+  if(m.vacinas.length<2)return "";
+  return `<div style="margin-top:10px"><label class="mut">Vacinas efetivamente administradas (marque as tomadas)</label>
+    <div class="barra">${m.vacinas.map(v=>`<label><input type="checkbox" class="adm-chk" value="${v}" ${(m.administradas||m.vacinas).includes(v)?"checked":""}> ${VAC[v]||v}</label>`).join("")}</div></div>`;
+}
+async function concluir(id,rev){
+  const m=marcacoes.find(x=>x.id===id);if(!m)return;
+  const chk=[...document.querySelectorAll(".adm-chk:checked")].map(c=>c.value);
+  const adm=m.vacinas.length>1?(chk.length?chk:m.vacinas):m.vacinas;
+  fecharModal();
+  await mutacao("/api/marcacoes/"+id,{rev,estado:"administrado",administradas:adm},
+    `Marcação marcada como <b>administrada</b>${m.vacinas.length>1?" ("+adm.join("+")+")":""}.`,"PUT");
+}
+function abrirNaoConcluido(id,rev){
+  document.getElementById("nao-concluido").hidden=false;
+  document.querySelectorAll("#nao-concluido")[0].scrollIntoView({behavior:"smooth"});
+  const div=document.getElementById("nc-detalhe");
+  div.innerHTML=`<div class="botoes" style="margin-top:8px">
+    <button class="btn primario" onclick="guardarNaoConcluido('${id}',${rev})">Gravar</button>
+    <button class="btn" onclick="abrirSub('${id}')">Adiar / reagendar…</button></div>`;
+}
+async function guardarNaoConcluido(id,rev){
+  const estado=val("x-estado");
+  const m=marcacoes.find(x=>x.id===id);if(!m)return;
+  const chk=[...document.querySelectorAll(".adm-chk:checked")].map(c=>c.value);
+  const corpo={rev,estado};
+  if(estado==="administrado"&&m.vacinas.length>1)corpo.administradas=chk.length?chk:m.vacinas;
+  fecharModal();
+  await mutacao("/api/marcacoes/"+id,corpo,
+    `A marcação vai passar a <b>${EST[estado]}</b>.`,"PUT");
+}
+function abrirSub(mid){window.location.hash="";const m=marcacoes.find(x=>x.id===mid);if(!m)return;abrirEstadoSub(mid);}
+function abrirEstadoSub(mid){
+  const m=marcacoes.find(x=>x.id===mid);if(!m)return;
+  const u=utenteDe(m.utenteId);
+  abrirModal(`<h3>${esc(u.nome)}${m.pessoa&&m.pessoa!=="titular"?" — "+esc(m.pessoa):""} — ${m.data} ${m.hora}</h3>
+    <p class="mut">Vacinas: ${m.vacinas.join(" + ")}${m.administradas&&m.administradas.length?` · administradas: ${m.administradas.join(" + ")}`:""}${m.justificada?` · <span class="just">justificada: ${esc(m.motivo)}</span>`:""}</p>
+    ${modalAdministradas(m)}
+    <label class="mut" style="margin-top:8px">Estado</label>
     <select id="x-estado">${ESTADOS_UI().map(e=>`<option value="${e}" ${m.estado===e?"selected":""}>${EST[e]}</option>`).join("")}</select>
-    <label class="mut">Reagendar (opcional)</label>
+    <label class="mut">Adiar / reagendar (opcional)</label>
     <div class="barra" style="margin-top:6px">
       <div class="campo"><label>Dia</label><input type="date" id="x-data" value="${m.data}" onchange="atualizarHoras('x-data','x-hora','x-nota')"></div>
       <div class="campo"><label>Hora</label><select id="x-hora">${opcoesHoras(m.data,m.hora)}</select></div>
     </div>
     ${notaHtml("x-nota",m.data)}
-    <p class="mut">Se mudar dia/hora, a marcação atual liberta a hora e nasce uma nova (reagendamento).</p>
+    <p class="mut">Se mudar dia/hora, esta pessoa liberta a hora e ganha marcação própria (deixa de ser do grupo).</p>
     <div class="botoes">
       <button class="btn" onclick="apagarMarcacao('${m.id}',${m.rev})">Eliminar</button>
       <button class="btn" onclick="fecharModal()">Fechar</button>
@@ -292,6 +361,8 @@ async function guardarMarcacao(id,rev,dataAntiga,horaAntiga){
     if(!horasDia.includes(nh)){alert(`Hora fora do horário${diaDaSemanaISO(nd)===6?" de sábado":""} (${horasDia[0]}–${horasDia[horasDia.length-1]}).`);return;}
   }
   const corpo={rev,estado};
+  const chk=[...document.querySelectorAll(".adm-chk:checked")].map(c=>c.value);
+  if(chk.length&&estado==="administrado")corpo.administradas=chk;
   if(nd!==dataAntiga||nh!==horaAntiga){corpo.novaData=nd;corpo.novaHora=nh;corpo.reagendar=true;}
   fecharModal();
   await mutacao("/api/marcacoes/"+id,corpo,
@@ -354,8 +425,11 @@ function renderStats(){
   marcacoes.forEach(m=>{
     if(!diasSemana.includes(m.data))return;
     if(m.estado==="cancelado"){if(!m.supersedidaPor)canc++;return;}/* supersedida por reagendamento não é "cancelada" */
-    const doses=m.vacinas.length+(m.grupo&&m.grupo.extras?m.grupo.extras*m.grupo.vacinas.length:0);
-    if(m.estado==="administrado"){prog+=doses;feitas+=doses;}
+    /* sub-marcações de grupo têm vacinas próprias; a marcação antiga com campo
+       grupo (pré-desdobramento) contava as doses dos acompanhantes — manter */
+    const doses=m.vacinas.length+(m.grupo&&!m.grupoId&&m.grupo.extras?m.grupo.extras*m.grupo.vacinas.length:0);
+    const adm=(m.estado==="administrado"&&m.administradas)?m.administradas.length:doses;
+    if(m.estado==="administrado"){prog+=doses;feitas+=adm;}
     else if(m.estado==="faltou"){prog+=doses;faltas+=doses;}
     else prog+=doses;
   });
@@ -367,17 +441,32 @@ function renderStats(){
 }
 function diasDaSemana(){const n=(config.mostrarSabado===false)?5:6;const a=[];for(let i=0;i<n;i++){const d=new Date(semanaBase);d.setDate(d.getDate()+i);a.push(iso(d));}return a;}
 
+/* estado agregado do utente para cor e filtro:
+   vacinado (verde) — tem marcação administrada;
+   agendado (amarelo) — sem administradas, com marcação ativa;
+   cancelado (vermelho) — só marcações canceladas; sem marcações — neutro */
+function estadoUtente(u){
+  const ms=marcacoes.filter(m=>m.utenteId===u.id&&!m.supersedidaPor);
+  if(ms.some(m=>m.estado==="administrado"))return "vacinado";
+  if(ms.some(m=>m.estado==="agendado"))return "agendado";
+  if(ms.length&&ms.every(m=>m.estado==="cancelado"))return "cancelado";
+  if(ms.some(m=>m.estado==="faltou"))return "agendado";
+  return "sem";
+}
+const ESTADO_FILTRO={vacinado:"Vacinados",agendado:"Agendados",cancelado:"Cancelados",sem:"Sem marcações"};
+function estadoFiltroAtual(){return document.getElementById("filtro-estado").value||"todos";}
 function renderUtentes(){
   const q=(document.getElementById("pesquisa").value||"").toLowerCase();
+  const f=estadoFiltroAtual();
   const corpo=document.getElementById("corpo-utentes");corpo.innerHTML="";
-  const lista=utentes.filter(u=>!q||u.nome.toLowerCase().includes(q)||u.contacto.toLowerCase().includes(q));
+  const lista=utentes.filter(u=>(!q||u.nome.toLowerCase().includes(q)||u.contacto.toLowerCase().includes(q))&&(f==="todos"||estadoUtente(u)===f));
   if(!lista.length){corpo.innerHTML="<tr><td colspan='6' class='vazio'>Sem utentes.</td></tr>";return;}
   lista.forEach(u=>{
     const ativa=marcacoes.find(m=>m.utenteId===u.id&&m.estado==="agendado");
     const ultima=marcacoes.filter(m=>m.utenteId===u.id).sort((a,b)=>(b.data+b.hora).localeCompare(a.data+a.hora))[0];
     const est=ultima?`<span class="badge b-${ultima.estado}">${EST[ultima.estado]}</span>`:'<span class="mut">sem marcação</span>';
     const marc=ativa?`${ativa.data} ${ativa.hora}`:(ultima?`<span class="mut">${ultima.data} ${ultima.hora}</span>`:"—");
-    const tr=document.createElement("tr");tr.className="utl";
+    const tr=document.createElement("tr");tr.className="utl linha-"+estadoUtente(u);
     tr.innerHTML=`<td>${esc(u.nome)}</td><td>${esc(u.contacto)}</td>
       <td><span class="chip">${u.vacina}</span>${VAC[u.vacina].replace("Gripe + COVID-19","")}</td>
       <td>${est}</td><td>${marc}</td>
@@ -409,8 +498,8 @@ function renderCal(){
         continue;}
       html+=`<div class="cal-celula" onclick="clicarCelula('${di}','${h}')">`+
         ms.map(m=>{const u=utenteDe(m.utenteId);
-          return`<div class="cartao est-${m.estado}" onclick="event.stopPropagation();abrirEstadoMarcacao('${m.id}')" title="${esc(u.nome)} — ${EST[m.estado]}${m.justificada?" (justificada: "+esc(m.motivo)+")":""}">
-            <strong>${esc(u.nome)}</strong>${m.vacinas.join("+")}${m.justificada?' <span class="just">J</span>':""}</div>`;}).join("")+
+          return`<div class="cartao est-${m.estado}" onclick="event.stopPropagation();abrirEstadoMarcacao('${m.id}')" title="${esc(u.nome)}${m.pessoa&&m.pessoa!=="titular"?" ("+esc(m.pessoa)+")":""} — ${EST[m.estado]}${m.justificada?" (justificada: "+esc(m.motivo)+")":""}">
+            <strong>${esc(u.nome)}</strong>${m.vacinas.join("+")}${m.pessoa&&m.pessoa!=="titular"?' <span class="mut">'+esc(m.pessoa.slice(0,12))+'</span>':""}${m.justificada?' <span class="just">J</span>':""}</div>`;}).join("")+
         `</div>`;}
   });
   const grelha=document.getElementById("grelha");
@@ -563,13 +652,16 @@ function janelaPDF(titulo){
   return w;
 }
 function fecharPDF(w){w.document.write("<script>window.onload=()=>window.print()<\/script></body></html>");w.document.close();}
+/* exportação respeita o filtro de estado ativo (o PDF/CSV mostram o que está
+   filtrado; se o filtro é "todos", exportam tudo) */
 function exportarUtentesPDF(){
   const w=janelaPDF("Utentes");if(!w)return;
-  w.document.write("<h2>Lista de utentes</h2><table><tr><th>Nome</th><th>Contacto</th><th>Vacina</th><th>Estado</th><th>Marcação</th></tr>");
-  utentes.forEach(u=>{
+  const f=estadoFiltroAtual();
+  w.document.write(`<h2>Lista de utentes${f!=="todos"?" — filtro: "+ESTADO_FILTRO[f]:""}</h2><table><tr><th>Nome</th><th>Contacto</th><th>Vacina</th><th>Estado</th><th>Marcação</th></tr>`);
+  utentes.filter(u=>f==="todos"||estadoUtente(u)===f).forEach(u=>{
     const ult=marcacoes.filter(m=>m.utenteId===u.id).sort((a,b)=>(b.data+b.hora).localeCompare(a.data+a.hora))[0];
     w.document.write(`<tr><td>${esc(u.nome)}</td><td>${esc(u.contacto)}</td><td>${VAC[u.vacina]}</td>
-      <td>${ult?EST[ult.estado]:"—"}</td><td>${ult?ult.data+" "+ult.hora+(ult.grupo&&ult.grupo.extras?` (+${ult.grupo.extras} acomp.)`:""):"—"}</td></tr>`);
+      <td>${ult?EST[ult.estado]:"—"}</td><td>${ult?ult.data+" "+ult.hora+(ult.pessoa&&ult.pessoa!=="titular"?" ("+esc(ult.pessoa)+")":(ult.grupo&&ult.grupo.extras?` (+${ult.grupo.extras} acomp.)`:"")):"—"}</td></tr>`);
   });
   w.document.write("</table>");fecharPDF(w);
 }
@@ -588,9 +680,9 @@ function exportarCalPDF(modo){
     w.document.write("<table><tr><th>Hora</th><th>Utente</th><th>Contacto</th><th>Vacinas</th><th>Estado</th><th>Justificação</th></tr>");
     ms.sort((a,b)=>a.hora.localeCompare(b.hora)).forEach(m=>{
       const u=utenteDe(m.utenteId);
-      const doses=m.vacinas.length+(m.grupo&&m.grupo.extras?m.grupo.extras*m.grupo.vacinas.length:0);
-      if(m.estado==="administrado"){prog+=doses;feitas+=doses;}else if(m.estado!=="cancelado")prog+=doses;
-      w.document.write(`<tr><td>${m.hora}</td><td>${esc(u.nome)}${m.grupo&&m.grupo.extras?` <span class="chip">+${m.grupo.extras}</span>`:""}</td><td>${esc(u.contacto)}</td><td>${m.vacinas.join("+")}</td><td>${EST[m.estado]}</td><td>${esc(m.motivo||"—")}</td></tr>`);
+      const doses=m.vacinas.length+(m.grupo&&!m.grupoId&&m.grupo.extras?m.grupo.extras*m.grupo.vacinas.length:0);
+      if(m.estado==="administrado"){prog+=doses;feitas+=(m.administradas?m.administradas.length:doses);}else if(m.estado!=="cancelado")prog+=doses;
+      w.document.write(`<tr><td>${m.hora}</td><td>${esc(u.nome)}${m.pessoa&&m.pessoa!=="titular"?` <span class="chip">${esc(m.pessoa)}</span>`:(m.grupo&&m.grupo.extras?` <span class="chip">+${m.grupo.extras} acomp.</span>`:"")}</td><td>${esc(u.contacto)}</td><td>${m.vacinas.join("+")}${m.administradas&&m.administradas.length?` (tomou ${m.administradas.join("+")})`:""}</td><td>${EST[m.estado]}</td><td>${esc(m.motivo||"—")}</td></tr>`);
     });
     w.document.write("</table>");
   });

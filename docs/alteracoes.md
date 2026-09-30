@@ -1,5 +1,48 @@
 # Alterações
 
+## 2026-09-30 (8) — Reserva múltipla desdobrada, Concluído/Não concluído, lista com cores e filtro
+
+**Desdobramento da reserva múltipla.** Uma marcação de grupo deixa de ser um
+registo único: o servidor cria automaticamente **N+1 sub-marcações**
+(titular + acompanhantes), todas com o mesmo `grupoId`, cada uma com:
+
+- `pessoa` — "titular" ou "acompanhante k";
+- `vacinas` próprias (as dos acompanhantes são as escolhidas no grupo);
+- ciclo de vida independente: estado, **adiamento** (reagendamento — deixa o
+  grupo e fica individual), cancelamento e eliminação;
+- `administradas` — o que foi **efetivamente administrado** (ex.: marcado
+  G+C mas só tomou a gripe → `["G"]`), validado como subconjunto das
+  vacinas da marcação.
+
+A ocupação da hora é do grupo inteiro (15 + 5·extras min) enquanto as
+sub-marcações partilham a hora; ao desdobrar-se (horas diferentes) cada uma
+conta os seus 15 min.
+
+**Interface:**
+- No modal de uma marcação de grupo aparece a **tabela das pessoas**, cada
+  uma com botão «Gerir» (estado, administradas, adiar, cancelar).
+- Botões **✓ Concluído** (marca administrado + o que foi administrado, com
+  caixas de marcação quando a marcação tem as duas vacinas) e
+  **Não concluído / alterado…** (faltou / cancelado, com opção de adiar).
+- **Lista de utentes com cores**: verde (vacinado — tem administrada),
+  amarelo (agendado), vermelho (só marcações canceladas), neutro (sem
+  marcações).
+- **Filtro por estado** (vacinados/agendados/cancelados/sem marcações);
+  o PDF da lista respeita o filtro ativo e indica-o no cabeçalho.
+- Calendário, PDFs e contadores semanais refletem as sub-marcações
+  (pessoa identificada no cartão, doses reais pelas `administradas`).
+
+**Retrocompatibilidade:** marcações antigas com campo `grupo` continuam a
+contar lugares/minutos como antes; `armazenamento.js` normaliza
+`grupoId`/`pessoa`/`administradas` na carga.
+
+Testes: 183 → **189** (desdobramento em 2 subs, grupoId partilhado,
+vacinas por pessoa, concluir com `administradas`, recusa de
+`administradas` fora das vacinas, adiar acompanhante deixa o grupo) e
+68 → **77** no cliente (botões, caixas de administradas, cores, filtro,
+PDF filtrado). Baterias: **189/189** e **77/77** no fuso Europe/Lisbon.
+
+
 ## 2026-09-30 (7) — Bloqueio temporal: 15 min por marcação + 5 por acompanhante
 
 O modelo de ocupação passa de contagem de lugares a **bloqueio temporal**:

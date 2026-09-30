@@ -48,6 +48,13 @@ tr.utl td{cursor:pointer}
 .b-administrado{background:#dcfce7;color:#15803d}
 .b-faltou{background:#fef3c7;color:#b45309}
 .b-cancelado{background:#e2e8f0;color:#64748b}
+.linha-vacinado{background:#f0fdf4}
+.linha-agendado{background:#fefce8}
+.linha-cancelado{background:#fef2f2}
+.linha-vacinado:hover{background:#dcfce7}
+.linha-agendado:hover{background:#fef9c3}
+.linha-cancelado:hover{background:#fee2e2}
+.okk{color:#15803d;font-weight:600}
 .chip{display:inline-block;background:#ccfbf1;color:#0f766e;border-radius:6px;padding:1px 7px;font-size:.72rem;font-weight:700;margin-right:3px}
 .vazio{color:var(--muted);padding:24px 0;text-align:center}
 .mut{font-size:.78rem;color:var(--muted)}
@@ -157,6 +164,15 @@ body{background:#fff}main,.painel{max-width:none}}
     <div class="barra">
       <div class="campo"><label>Importar .txt (nome; contacto; vacina — contacto opcional)</label><input type="file" id="ficheiro-txt" accept=".txt,text/plain"></div>
       <div class="campo"><label>Pesquisar</label><input id="pesquisa" placeholder="Nome ou contacto…" style="width:220px"></div>
+      <div class="campo"><label>Filtrar por estado</label>
+        <select id="filtro-estado" onchange="renderUtentes()">
+          <option value="todos">Todos</option>
+          <option value="vacinado">Vacinados (verde)</option>
+          <option value="agendado">Agendados (amarelo)</option>
+          <option value="cancelado">Cancelados (vermelho)</option>
+          <option value="sem">Sem marcações</option>
+        </select>
+      </div>
       <button class="btn" onclick="exportarUtentesPDF()"><svg class="icone"><use href="#i-pdf"/></svg>Exportar PDF</button>
       <button class="btn" onclick="exportarCSV('utentes')"><svg class="icone"><use href="#i-csv"/></svg>Exportar CSV</button>
     </div>

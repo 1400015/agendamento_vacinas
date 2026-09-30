@@ -269,6 +269,20 @@ function carregar() {
   ok("exportarCSV de utentes vai sem filtro de datas", !!chUt && chUt.url === "/api/exportar.csv?tipo=utentes");
   ok("a exportação avisa o utilizador", /CSV exportado/.test(c.el("banner-txt").textContent));
 
+  /* ---- desdobramento de reserva múltipla, concluido/nao concluido, filtro e cores ---- */
+  console.log("\n[Reserva múltipla desdobrada e lista filtrada (cliente)]");
+  const js = fs.readFileSync(path.join(__dirname, "public", "app.js"), "utf8");
+  const htmlPg = fs.readFileSync(path.join(__dirname, "public", "index.html"), "utf8");
+  ok("o modal de grupo lista as sub-marcações individuais (regressão)", js.includes("marcacoes.filter(x=>x.grupoId===m.grupoId)"));
+  ok("existem botões Concluído e Não concluído (regressão)", js.includes("Concluído") && js.includes("Não concluído / alterado"));
+  ok("concluir envia estado administrado + administradas (regressão)", /concluir\(.\)\{|estado:\"administrado\",administradas:adm/.test(js.replace(/\s+/g,"")));
+  ok("o registo do que foi administrado usa caixas de marcação (adm-chk)", js.includes("adm-chk"));
+  ok("adiar sub-marcação deixa o grupo (regressão servidor-cliente)", js.includes("deixa de ser do grupo"));
+  ok("lista de utentes com cor por estado (linha-vacinado/agendado/cancelado)", ["linha-vacinado","linha-agendado","linha-cancelado"].every(k=>htmlPg.includes("." + k)));
+  ok("filtro de estado presente na página (vacinado/agendado/cancelado)", htmlPg.includes("filtro-estado") && htmlPg.includes("Vacinados (verde)"));
+  ok("estadoUtente: administrado → vacinado (verde)", js.includes("if(ms.some(m=>m.estado===\"administrado\"))return \"vacinado\""));
+  ok("PDF de utentes respeita o filtro de estado", js.includes('utentes.filter(u=>f==="todos"||estadoUtente(u)===f)'));
+
   console.log("\n════════════════════════════════════════");
   console.log(`  Resultado: ${passou} passaram, ${falhou} falharam`);
   process.exit(falhou ? 1 : 0);

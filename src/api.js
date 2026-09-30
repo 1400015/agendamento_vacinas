@@ -29,7 +29,8 @@ function criarApi(ctx) {
   }
   /* lugares ocupados numa hora: cada marcação conta 1 + os acompanhantes do grupo */
   function lugares(data, hora, excetoId) {
-    return ocupantes(data, hora, excetoId).reduce((t, m) => t + 1 + (m.grupo && m.grupo.extras ? m.grupo.extras : 0), 0);
+    return ocupantes(data, hora, excetoId).reduce((t, m) =>
+      t + (m.grupoId ? 1 : 1 + (m.grupo && m.grupo.extras ? m.grupo.extras : 0)), 0);
   }
   /* bloqueio temporal: cada marcação ativa bloqueia 15 min + 5 min por acompanhante.
      Ex.: Maria + marido (1 extra) às 09:35 bloqueia até 09:55 — 20 min do horário.
@@ -37,7 +38,15 @@ function criarApi(ctx) {
   const BLOQUEIO_BASE = 15, BLOQUEIO_EXTRA = 5;
   const bloqueioMinutos = m => BLOQUEIO_BASE + (m.grupo && m.grupo.extras ? m.grupo.extras * BLOQUEIO_EXTRA : 0);
   function minutosOcupados(data, hora, excetoId) {
-    return ocupantes(data, hora, excetoId).reduce((t, m) => t + bloqueioMinutos(m), 0);
+    const occ = ocupantes(data, hora, excetoId);
+    let total = 0; const grupos = new Map();
+    for (const m of occ) {
+      if (m.grupoId) {
+        const arr = grupos.get(m.grupoId) || []; arr.push(m); grupos.set(m.grupoId, arr);
+      } else total += bloqueioMinutos(m);
+    }
+    for (const arr of grupos.values()) total += BLOQUEIO_BASE + (arr.length - 1) * BLOQUEIO_EXTRA;
+    return total;
   }
   /* cabe ainda a marcação proposta (minutos bloqueados + os dela) no slot? */
   function cabeNoSlot(data, hora, extras, excetoId) {
@@ -337,8 +346,26 @@ function criarApi(ctx) {
         return resp(409, { erro: `Hora cheia (máx. ${cfg.maxPorHora} lugares por horário; reserva múltipla conta ${1 + g.extras}).`, motivo: "slot_ocupado", ocupantes: ocup.map(o => ({ id: o.id, nome: utenteDe(o.utenteId) })) });
       if (just && !motivo)
         return resp(400, { erro: "Exceção justificada exige motivo." });
+      /* reserva múltipla: desdobrar em sub-marcações individuais (titular + acompanhantes),
+         cada uma com ciclo de vida próprio (estado, reagendamento, administradas).
+         A ocupação da hora é a do grupo inteiro: bloqueioMinutos conta os extras. */
+      if (g.extras) {
+        const grupoId = crypto.randomUUID();
+        const pessoas = [{ rotulo: "titular", vac: vacinas }].concat(
+          Array.from({ length: g.extras }, (_, i) => ({ rotulo: `acompanhante ${i + 1}`, vac: g.vacinas.slice() })));
+        // g.vacinas vem como ["G"] ou ["G","C"] (normalizado); cada acompanhante recebe essas
+        pessoas.forEach((p, i) => {
+          const sm = { id: crypto.randomUUID(), utenteId: utente.id, data, hora,
+            vacinas: p.vac, grupoId, pessoa: p.rotulo,
+            estado: "agendado", justificada: just, motivo: just ? motivo : "",
+            rev: 1, criadoEm: U.agora(), criadoPor: posto,
+            historico: [{ quando: U.agora(), acc: "criada" + (i > 0 ? " (reserva múltipla: " + p.rotulo + ")" : ""), posto }] };
+          dados.marcacoes.push(sm);
+        });
+        registar(posto, "agendar", grupoId, `${data} ${hora} grupo ${1 + g.extras} pessoas (${vacinas.join("+")} + ${g.vacinas.join("+")} x${g.extras})${just ? " justificada: " + motivo : ""}`);
+        return gravar({ grupoId });
+      }
       const m = { id: crypto.randomUUID(), utenteId: utente.id, data, hora, vacinas,
-        grupo: g.extras ? { extras: g.extras, vacinas: g.vacinas } : undefined,
         estado: "agendado", justificada: just, motivo: just ? motivo : "",
         rev: 1, criadoEm: U.agora(), criadoPor: posto, historico: [{ quando: U.agora(), acc: "criada", posto }] };
       dados.marcacoes.push(m);
@@ -377,7 +404,12 @@ function criarApi(ctx) {
           return resp(409, { erro: "Nova hora ocupada noutro posto.", motivo: "slot_ocupado", ocupantes: ocup.map(o => ({ id: o.id, nome: utenteDe(o.utenteId) })) });
         if (corpo.justificada && !String(corpo.motivo || "").trim())
           return resp(400, { erro: "Exceção justificada exige motivo." });
-        const nova = { id: crypto.randomUUID(), utenteId: m.utenteId, data: nd, hora: nh, vacinas: m.vacinas, grupo: m.grupo,
+        /* sub-marcação de grupo: ao reagendar deixa de partilhar a hora — perde o grupoId,
+           fica como marcação individual desta pessoa (pessoa mantida como nota histórica). */
+        const indiv = !!(m.grupoId || m.grupo);
+        const nova = { id: crypto.randomUUID(), utenteId: m.utenteId, data: nd, hora: nh, vacinas: m.vacinas,
+          grupo: (m.grupo && !m.grupoId) ? m.grupo : undefined,
+          pessoa: m.pessoa,
           estado: "agendado", justificada: !!corpo.justificada, motivo: String(corpo.motivo || "").trim(),
           rev: 1, criadoEm: U.agora(), criadoPor: posto, historico: [{ quando: U.agora(), acc: `reagendada de ${m.data} ${m.hora}`, posto }] };
         dados.marcacoes.push(nova);
@@ -407,6 +439,14 @@ function criarApi(ctx) {
         if ((ocup.length > 0 && !corpo.justificada && !cabeNoSlot(nd, nh, g2, m.id)) || lugares(nd, nh, m.id) + 1 + g2 > cfg.maxPorHora)
           return resp(409, { erro: "Hora destino ocupada.", motivo: "slot_ocupado", ocupantes: ocup.map(o => ({ id: o.id, nome: utenteDe(o.utenteId) })) });
         m.data = nd; m.hora = nh;
+      }
+      /* registo do que foi efetivamente administrado (ex.: marcado G+C mas só tomou a da gripe):
+         array de códigos ("G"/"C"), subconjunto das vacinas da marcação */
+      if (corpo.administradas !== undefined) {
+        const adm = U.normalizarSlots(corpo.administradas);
+        if (adm.some(v => !m.vacinas.includes(v)))
+          return resp(400, { erro: "administradas tem de ser subconjunto das vacinas da marcação (" + m.vacinas.join("+") + ")." });
+        m.administradas = adm;
       }
       if (corpo.estado !== undefined) m.estado = estado;
       if (corpo.justificada !== undefined) {

@@ -349,15 +349,38 @@ function ok(nome, cond) {
 
   /* ---- reserva múltipla (acompanhantes) ---- */
   console.log("\n[Reserva múltipla]");
-  /* sexta-feira útil; grupo de 1+1=2 lugares cabe em maxPorHora=2 */
+  /* sexta-feira útil; grupo de 1+1=2 lugares cabe em maxPorHora=2.
+     Agora o grupo é DESDOBRADO em sub-marcações individuais (titular + acompanhantes). */
   r = await api("/api/marcacoes", { baseVersao: base, utenteId: maria.id, data: "2099-09-24", hora: "09:00", vacinas: ["G"], grupoExtras: 1, grupoVacinas: "G+C" });
-  ok("criar marcação com 1 acompanhante (G+C) aceite", r.s === 200);
+  ok("criar reserva múltipla com 1 acompanhante (G+C) aceite", r.s === 200);
+  let subsGrupo = [];
   if (r.s === 200) {
     base = r.d.versao;
-    const mg = r.d.marcacoes[r.d.marcacoes.length - 1];
-    ok("grupo gravado com extras=1 e vacinas G+C", mg.grupo && mg.grupo.extras === 1 && mg.grupo.vacinas.join("+") === "G+C");
-    r = await api("/api/marcacoes/" + mg.id, { baseVersao: base, rev: mg.rev, estado: "administrado" }, "PUT");
-    ok("marcar grupo como administrado", r.s === 200);
+    subsGrupo = r.d.marcacoes.filter(m => m.grupoId && m.data === "2099-09-24" && m.hora === "09:00");
+    ok("grupo desdobrado em 2 sub-marcações (titular + acompanhante)", subsGrupo.length === 2);
+    ok("sub-marcações partilham grupoId", subsGrupo.length === 2 && subsGrupo[0].grupoId === subsGrupo[1].grupoId);
+    ok("titular com vacinas G; acompanhante com G+C", subsGrupo.find(m => m.pessoa === "titular").vacinas.join("+") === "G" && subsGrupo.find(m => m.pessoa === "acompanhante 1").vacinas.join("+") === "G+C");
+    /* concluir só o titular; o acompanhante só tomou a gripe */
+    const tit = subsGrupo.find(m => m.pessoa === "titular");
+    const ac = subsGrupo.find(m => m.pessoa === "acompanhante 1");
+    r = await api("/api/marcacoes/" + tit.id, { baseVersao: base, rev: tit.rev, estado: "administrado", administradas: ["G"] }, "PUT");
+    ok("concluir o titular (administrado)", r.s === 200);
+    if (r.s === 200) base = r.d.versao;
+    r = await api("/api/marcacoes/" + ac.id, { baseVersao: base, rev: ac.rev, estado: "administrado", administradas: ["G"] }, "PUT");
+    ok("acompanhante concluido com só a gripe (administradas G de G+C)", r.s === 200);
+    if (r.s === 200) {
+      base = r.d.versao;
+      const acDep = (await api("/api/dados")).d.marcacoes.find(m => m.id === ac.id);
+      ok("administradas gravadas como [G]", Array.isArray(acDep.administradas) && acDep.administradas.join("+") === "G");
+    }
+    /* administradas fora das vacinas da marcação: o titular só tem [G] */
+    const titFresco = (await api("/api/dados")).d.marcacoes.find(m => m.id === tit.id);
+    r = await api("/api/marcacoes/" + tit.id, { baseVersao: base, rev: titFresco.rev, administradas: ["C"] }, "PUT");
+    ok("administradas fora das vacinas da marcação recusado (400)", r.s === 400);
+    /* adiar o acompanhante para outra hora: deixa o grupo, fica individual */
+    const acFresco = (await api("/api/dados")).d.marcacoes.find(m => m.id === ac.id);
+    r = await api("/api/marcacoes/" + ac.id, { baseVersao: base, rev: acFresco.rev, reagendar: true, novaData: "2099-09-24", novaHora: "10:30" }, "PUT");
+    ok("adiar acompanhante: nova marcação individual fora do grupo", r.s === 200 && !r.d.marcacoes.find(m => m.id === r.d.novaId).grupoId);
     if (r.s === 200) base = r.d.versao;
   }
   /* grupo de 1+2=3 lugares excede maxPorHora=2 → 409 com motivo slot_ocupado */
