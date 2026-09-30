@@ -236,6 +236,15 @@ function abrirMarcar(id,data,hora){
         ${u.vacina==="G+C"?"<option value='G+C'>Ambas (G+C)</option><option value='G'>Só Gripe (G)</option><option value='C'>Só COVID (C)</option>"
         :`<option value='${u.vacina}'>${VAC[u.vacina]}</option>`}</select></div>
     </div>
+    <label class="check" style="margin-top:8px"><input type="checkbox" id="m-multiple" onchange="document.getElementById('m-grupo-campos').hidden=!this.checked"> Reserva múltipla (marcar para acompanhantes na mesma hora)</label>
+    <div id="m-grupo-campos" hidden>
+      <div class="barra" style="margin-top:6px">
+        <div class="campo"><label>Pessoas extra</label><input type="number" id="m-grupo-extras" min="1" max="9" value="1" style="width:90px"></div>
+        <div class="campo"><label>Vacinas dos acompanhantes</label>
+          <select id="m-grupo-vac"><option value="G">Gripe (G)</option><option value="C">COVID-19 (C)</option><option value="G+C">Ambas (G+C)</option></select></div>
+      </div>
+      <p class="mut" style="margin-top:4px">A reserva múltipla ocupa ${1} lugar(es) por cada acompanhante no horário escolhido.</p>
+    </div>
     ${notaHtml("m-nota",data||isoHoje())}
     <div class="botoes"><button class="btn" onclick="fecharModal()">Cancelar</button>
     <button class="btn primario" onclick="confirmarMarcar('${u.id}')">Marcar</button></div>`);
@@ -256,7 +265,7 @@ function abrirEstadoMarcacao(mid){
   const u=utenteDe(m.utenteId);
   const outras=marcacoes.filter(x=>x.id!==mid&&x.data===m.data&&x.hora===m.hora&&["agendado","administrado"].includes(x.estado));
   abrirModal(`<h3>${esc(u.nome)} — ${m.data} ${m.hora}</h3>
-    <p class="mut">Vacinas: ${m.vacinas.join(" + ")} · criada por ${esc(m.criadoPor||"?")}${m.justificada?` · <span class="just">justificada: ${esc(m.motivo)}</span>`:""}</p>
+    <p class="mut">Vacinas: ${m.vacinas.join(" + ")} · criada por ${esc(m.criadoPor||"?")}${m.grupo&&m.grupo.extras?` · +${m.grupo.extras} acompanhante(s) — ${m.grupo.vacinas.join(" + ")}`:""}${m.justificada?` · <span class="just">justificada: ${esc(m.motivo)}</span>`:""}</p>
     ${outras.length?`<p class="just">Hora partilhada com: ${outras.map(o=>esc(utenteDe(o.utenteId).nome)).join(", ")}</p>`:""}
     <label class="mut">Estado</label>
     <select id="x-estado">${ESTADOS_UI().map(e=>`<option value="${e}" ${m.estado===e?"selected":""}>${EST[e]}</option>`).join("")}</select>
@@ -345,7 +354,7 @@ function renderStats(){
   marcacoes.forEach(m=>{
     if(!diasSemana.includes(m.data))return;
     if(m.estado==="cancelado"){if(!m.supersedidaPor)canc++;return;}/* supersedida por reagendamento não é "cancelada" */
-    const doses=m.vacinas.length;
+    const doses=m.vacinas.length+(m.grupo&&m.grupo.extras?m.grupo.extras*m.grupo.vacinas.length:0);
     if(m.estado==="administrado"){prog+=doses;feitas+=doses;}
     else if(m.estado==="faltou"){prog+=doses;faltas+=doses;}
     else prog+=doses;
@@ -414,15 +423,32 @@ function clicarCelula(d,h){
   abrirModal(`<h3>Marcar em ${fmtData(d)} às ${h}</h3>
     <label class="mut">Utente</label>
     <select id="m-utente">${disponiveis.map(u=>`<option value="${u.id}">${esc(u.nome)} — ${esc(u.contacto)} (${u.vacina})</option>`).join("")}</select>
+    <label style="margin-top:8px"><input type="checkbox" id="m-multiple" onchange="document.getElementById('m-grupo-campos').hidden=!this.checked"> Reserva múltipla (marcar para acompanhantes na mesma hora)</label>
+    <div id="m-grupo-campos" hidden>
+      <div class="barra" style="margin-top:6px">
+        <div class="campo"><label>Pessoas extra</label><input type="number" id="m-grupo-extras" min="1" max="9" value="1"></div>
+        <div class="campo"><label>Vacinas dos acompanhantes</label><select id="m-grupo-vac"><option value="G">Gripe (G)</option><option value="C">COVID (C)</option><option value="G+C">Gripe + COVID (G+C)</option></select></div>
+      </div>
+    </div>
     <div class="botoes"><button class="btn" onclick="fecharModal()">Cancelar</button>
     <button class="btn primario" onclick="confirmarMarcarCal('${d}','${h}')">Marcar</button></div>`);
 }
 async function confirmarMarcarCal(d,h){
   const id=val("m-utente");const u=utenteDe(id);
   const vac=u.vacina==="G+C"?["G","C"]:[u.vacina];
+  const corpo={utenteId:id,data:d,hora:h,vacinas:vac};
+  let msg=`${esc(u.nome)} vai ficar marcado para ${fmtData(d)} às ${h}.`;
+  const chk=document.getElementById("m-multiple");
+  if(chk&&chk.checked){
+    const extras=Number(val("m-grupo-extras"));
+    if(!Number.isInteger(extras)||extras<1||extras>9){alert("Número de pessoas extra inválido (1 a 9).");return;}
+    const gv=val("m-grupo-vac");
+    if(!["G","C","G+C"].includes(gv)){alert("Vacinas dos acompanhantes inválidas.");return;}
+    corpo.grupoExtras=extras;corpo.grupoVacinas=gv;
+    msg=`${esc(u.nome)} vai ficar marcado para ${fmtData(d)} às ${h}, com +${extras} acompanhante(s) (${gv}).`;
+  }
   fecharModal();
-  await mutacao("/api/marcacoes",{utenteId:id,data:d,hora:h,vacinas:vac},
-    `${esc(u.nome)} vai ficar marcado para ${fmtData(d)} às ${h}.`);
+  await mutacao("/api/marcacoes",corpo,msg);
 }
 
 function horaLocal(iso){
@@ -543,7 +569,7 @@ function exportarUtentesPDF(){
   utentes.forEach(u=>{
     const ult=marcacoes.filter(m=>m.utenteId===u.id).sort((a,b)=>(b.data+b.hora).localeCompare(a.data+a.hora))[0];
     w.document.write(`<tr><td>${esc(u.nome)}</td><td>${esc(u.contacto)}</td><td>${VAC[u.vacina]}</td>
-      <td>${ult?EST[ult.estado]:"—"}</td><td>${ult?ult.data+" "+ult.hora:"—"}</td></tr>`);
+      <td>${ult?EST[ult.estado]:"—"}</td><td>${ult?ult.data+" "+ult.hora+(ult.grupo&&ult.grupo.extras?` (+${ult.grupo.extras} acomp.)`:""):"—"}</td></tr>`);
   });
   w.document.write("</table>");fecharPDF(w);
 }
@@ -562,9 +588,9 @@ function exportarCalPDF(modo){
     w.document.write("<table><tr><th>Hora</th><th>Utente</th><th>Contacto</th><th>Vacinas</th><th>Estado</th><th>Justificação</th></tr>");
     ms.sort((a,b)=>a.hora.localeCompare(b.hora)).forEach(m=>{
       const u=utenteDe(m.utenteId);
-      const doses=m.vacinas.length;
+      const doses=m.vacinas.length+(m.grupo&&m.grupo.extras?m.grupo.extras*m.grupo.vacinas.length:0);
       if(m.estado==="administrado"){prog+=doses;feitas+=doses;}else if(m.estado!=="cancelado")prog+=doses;
-      w.document.write(`<tr><td>${m.hora}</td><td>${esc(u.nome)}</td><td>${esc(u.contacto)}</td><td>${m.vacinas.join("+")}</td><td>${EST[m.estado]}</td><td>${esc(m.motivo||"—")}</td></tr>`);
+      w.document.write(`<tr><td>${m.hora}</td><td>${esc(u.nome)}${m.grupo&&m.grupo.extras?` <span class="chip">+${m.grupo.extras}</span>`:""}</td><td>${esc(u.contacto)}</td><td>${m.vacinas.join("+")}</td><td>${EST[m.estado]}</td><td>${esc(m.motivo||"—")}</td></tr>`);
     });
     w.document.write("</table>");
   });

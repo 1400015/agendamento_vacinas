@@ -1,5 +1,39 @@
 # Alterações
 
+## 2026-09-30 (6) — Reserva múltipla (marcação para acompanhantes)
+
+Peculiaridade do balcão: um utente vem marcar para si **e para mais pessoas**
+(marido/mulher, filhos...). A marcação fica num único horário, assinalada como
+grupo:
+
+- **Novo campo na marcação**: `grupo` com `{ extras, vacinas }` — número de
+  acompanhantes (1–9) e as vacinas **deles** (G, C ou G+C, independentes das
+  do utente titular).
+- **Interface**: na janela de marcação (lista e calendário) surge um
+  quadrado **«Reserva múltipla»**; ao assinalar, aparecem dois campos:
+  *Pessoas extra* e *Vacinas dos acompanhantes*. Sem o quadrado assinalado,
+  nada muda.
+- **Ocupação da hora**: cada marcação de grupo conta `1 + extras` lugares
+  contra o `maxPorHora` — um grupo pode esgotar a hora sozinho; a recusa
+  (409 `slot_ocupado`) indica-o explicitamente. Reagendamento e deslocamento
+  preservam o grupo.
+- **Exibição**: o cartão do calendário e os PDFs mostram `+N`; o modal de
+  estado e o histórico mostram os acompanhantes e as suas vacinas. Os
+  contadores semanais (Programadas/Administradas/Faltas) contam as doses
+  dos acompanhantes.
+- **Exportações**: lista de utentes, calendário (dia/semana) e CSV incluem o
+  grupo; a confidencialidade já impressa aplica-se igualmente.
+- **Validação no servidor**: `grupoExtras` inteiro 1–9 obrigatório quando
+  presente, `grupoVacinas` em G/C/G+C; recusa coerente (400) nos casos
+  inválidos. `armazenamento.js` normaliza o grupo na carga (extras
+  inválidos → ignora o grupo e avisa).
+
+Testes: 177 → **181 verificações** (criação de grupo, contagem de lugares
+contra `maxPorHora`, recusa de grupo excedente com motivo `slot_ocupado`,
+validações 400, marcar grupo como administrado). Bateria: **181/181** no fuso
+Europe/Lisbon.
+
+
 ## 2026-09-30 (5) — Pasta `agendamento_vacinas_DS/` (snapshot pronto a mover)
 
 Pasta criada a pedido, com um snapshot exato do `HEAD` (via `git archive`):

@@ -27,6 +27,20 @@ function criarApi(ctx) {
   function ocupantes(data, hora, excetoId) {
     return dados.marcacoes.filter(m => m.data === data && m.hora === hora && U.OCUPAM.includes(m.estado) && m.id !== excetoId);
   }
+  /* lugares ocupados numa hora: cada marcação conta 1 + os acompanhantes do grupo */
+  function lugares(data, hora, excetoId) {
+    return ocupantes(data, hora, excetoId).reduce((t, m) => t + 1 + (m.grupo && m.grupo.extras ? m.grupo.extras : 0), 0);
+  }
+  /* validação da reserva múltipla (grupo): extras 1-9 e vacinas G/C/G+C */
+  function validarGrupo(corpo) {
+    const extras = Number(corpo.grupoExtras);
+    if (corpo.grupoExtras === undefined || corpo.grupoExtras === null || corpo.grupoExtras === "") return { extras: 0 };
+    if (!Number.isInteger(extras) || extras < 1 || extras > 9)
+      return { erro: "Número de pessoas extra inválido (inteiro entre 1 e 9)." };
+    const v = U.normalizarVac(corpo.grupoVacinas);
+    if (!v) return { erro: "Vacinas do grupo inválidas (G, C ou G+C)." };
+    return { extras, vacinas: v === "G+C" ? ["G", "C"] : [v] };
+  }
   /* dias de encerramento (feriados/férias): a farmácia não vacina nesses dias */
   const encerrado = data => (Array.isArray(cfg.diasFechados) ? cfg.diasFechados : []).includes(data);
   /* horas válidas por dia: dias de encerramento não têm nenhuma; o sábado tem
@@ -301,14 +315,17 @@ function criarApi(ctx) {
       const motivo = String(corpo.motivo || "").trim();
       if (dados.marcacoes.some(m => m.utenteId === utente.id && m.data === data && m.hora === hora && U.OCUPAM.includes(m.estado)))
         return resp(409, { erro: "Este utente já tem marcação ativa nessa hora." });
+      const g = validarGrupo(corpo);
+      if (g.erro) return resp(400, { erro: g.erro });
       const ocup = ocupantes(data, hora, null);
-      if (ocup.length >= cfg.maxPorHora)
-        return resp(409, { erro: `Hora cheia (máx. ${cfg.maxPorHora} por horário).`, motivo: "slot_ocupado", ocupantes: ocup.map(o => ({ id: o.id, nome: utenteDe(o.utenteId) })) });
+      if (lugares(data, hora, null) + 1 + g.extras > cfg.maxPorHora)
+        return resp(409, { erro: `Hora cheia (máx. ${cfg.maxPorHora} lugares por horário; reserva múltipla conta ${1 + g.extras}).`, motivo: "slot_ocupado", ocupantes: ocup.map(o => ({ id: o.id, nome: utenteDe(o.utenteId) })) });
       if (ocup.length > 0 && !just)
         return resp(409, { erro: "Hora já ocupada.", motivo: "slot_ocupado", ocupantes: ocup.map(o => ({ id: o.id, nome: utenteDe(o.utenteId) })) });
       if (just && !motivo)
         return resp(400, { erro: "Exceção justificada exige motivo." });
       const m = { id: crypto.randomUUID(), utenteId: utente.id, data, hora, vacinas,
+        grupo: g.extras ? { extras: g.extras, vacinas: g.vacinas } : undefined,
         estado: "agendado", justificada: just, motivo: just ? motivo : "",
         rev: 1, criadoEm: U.agora(), criadoPor: posto, historico: [{ quando: U.agora(), acc: "criada", posto }] };
       dados.marcacoes.push(m);
@@ -342,11 +359,12 @@ function criarApi(ctx) {
         if (dados.marcacoes.some(x => x.utenteId === m.utenteId && x.data === nd && x.hora === nh && U.OCUPAM.includes(x.estado) && x.id !== m.id))
           return resp(409, { erro: "Este utente já tem marcação ativa nessa hora." });
         const ocup = ocupantes(nd, nh, m.id);
-        if (ocup.length >= cfg.maxPorHora || (ocup.length > 0 && !corpo.justificada))
+        const g = (m.grupo && m.grupo.extras) ? m.grupo.extras : 0;
+        if (lugares(nd, nh, m.id) + 1 + g > cfg.maxPorHora || (ocup.length > 0 && !corpo.justificada))
           return resp(409, { erro: "Nova hora ocupada noutro posto.", motivo: "slot_ocupado", ocupantes: ocup.map(o => ({ id: o.id, nome: utenteDe(o.utenteId) })) });
         if (corpo.justificada && !String(corpo.motivo || "").trim())
           return resp(400, { erro: "Exceção justificada exige motivo." });
-        const nova = { id: crypto.randomUUID(), utenteId: m.utenteId, data: nd, hora: nh, vacinas: m.vacinas,
+        const nova = { id: crypto.randomUUID(), utenteId: m.utenteId, data: nd, hora: nh, vacinas: m.vacinas, grupo: m.grupo,
           estado: "agendado", justificada: !!corpo.justificada, motivo: String(corpo.motivo || "").trim(),
           rev: 1, criadoEm: U.agora(), criadoPor: posto, historico: [{ quando: U.agora(), acc: `reagendada de ${m.data} ${m.hora}`, posto }] };
         dados.marcacoes.push(nova);
@@ -372,7 +390,8 @@ function criarApi(ctx) {
         if (dados.marcacoes.some(x => x.utenteId === m.utenteId && x.data === nd && x.hora === nh && U.OCUPAM.includes(x.estado) && x.id !== m.id))
           return resp(409, { erro: "Este utente já tem marcação ativa nessa hora." });
         const ocup = ocupantes(nd, nh, m.id);
-        if (ocup.length >= cfg.maxPorHora || (ocup.length > 0 && !corpo.justificada))
+        const g2 = (m.grupo && m.grupo.extras) ? m.grupo.extras : 0;
+        if (lugares(nd, nh, m.id) + 1 + g2 > cfg.maxPorHora || (ocup.length > 0 && !corpo.justificada))
           return resp(409, { erro: "Hora destino ocupada.", motivo: "slot_ocupado", ocupantes: ocup.map(o => ({ id: o.id, nome: utenteDe(o.utenteId) })) });
         m.data = nd; m.hora = nh;
       }

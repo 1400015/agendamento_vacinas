@@ -338,6 +338,32 @@ function ok(nome, cond) {
   ok("hora na pausa de almoço recusada (fora dos períodos)", r.s === 400);
   if (r.s === 200) base = r.d.versao;
 
+  /* ---- reserva múltipla (acompanhantes) ---- */
+  console.log("\n[Reserva múltipla]");
+  /* sexta-feira útil; grupo de 1+1=2 lugares cabe em maxPorHora=2 */
+  r = await api("/api/marcacoes", { baseVersao: base, utenteId: maria.id, data: "2099-09-24", hora: "09:00", vacinas: ["G"], grupoExtras: 1, grupoVacinas: "G+C" });
+  ok("criar marcação com 1 acompanhante (G+C) aceite", r.s === 200);
+  if (r.s === 200) {
+    base = r.d.versao;
+    const mg = r.d.marcacoes[r.d.marcacoes.length - 1];
+    ok("grupo gravado com extras=1 e vacinas G+C", mg.grupo && mg.grupo.extras === 1 && mg.grupo.vacinas.join("+") === "G+C");
+    r = await api("/api/marcacoes/" + mg.id, { baseVersao: base, rev: mg.rev, estado: "administrado" }, "PUT");
+    ok("marcar grupo como administrado", r.s === 200);
+    if (r.s === 200) base = r.d.versao;
+  }
+  /* grupo de 1+2=3 lugares excede maxPorHora=2 → 409 com motivo slot_ocupado */
+  r = await api("/api/marcacoes", { baseVersao: base, utenteId: maria.id, data: "2099-09-24", hora: "10:00", vacinas: ["G"], grupoExtras: 2, grupoVacinas: "G" });
+  ok("grupo que excede maxPorHora recusado (409 slot_ocupado)", r.s === 409 && r.d && r.d.motivo === "slot_ocupado");
+  r = await api("/api/marcacoes", { baseVersao: base, utenteId: maria.id, data: "2099-09-24", hora: "11:00", vacinas: ["G"], grupoExtras: 0, grupoVacinas: "G" });
+  ok("grupoExtras 0 recusado (400)", r.s === 400);
+  r = await api("/api/marcacoes", { baseVersao: base, utenteId: maria.id, data: "2099-09-24", hora: "11:00", vacinas: ["G"], grupoExtras: 10, grupoVacinas: "G" });
+  ok("grupoExtras 10 recusado (400)", r.s === 400);
+  r = await api("/api/marcacoes", { baseVersao: base, utenteId: maria.id, data: "2099-09-24", hora: "11:00", vacinas: ["G"], grupoExtras: 1, grupoVacinas: "X" });
+  ok("grupoVacinas inválido recusado (400)", r.s === 400);
+  r = await api("/api/marcacoes", { baseVersao: base, utenteId: maria.id, data: "2099-09-24", hora: "11:00", vacinas: ["G"], grupoExtras: 1 });
+  ok("grupoExtras sem grupoVacinas recusado (400)", r.s === 400);
+
+
   console.log("\n[304 leve no /api/dados]");
   const vAtual = (await api("/api/dados")).d.versao;
   const r304 = await fetch(B + "/api/dados?versao=" + vAtual, { headers: { "Authorization": "Bearer " + token } });
