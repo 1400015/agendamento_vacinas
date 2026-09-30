@@ -528,9 +528,12 @@ function janelaPDF(titulo){
   h1{font-size:17px;color:#0f766e;margin:0 0 2px}h2{font-size:14px;color:#0f766e;margin:18px 0 6px}
   .mut{color:#64748b;font-size:11px}table{width:100%;border-collapse:collapse;margin-bottom:14px}
   th,td{border:1px solid #bbb;padding:5px 7px;text-align:left;font-size:11px}
-  th{background:#e6f4f1;color:#0f766e}.info{background:#e6f4f1;border:1px solid #ccc;padding:8px 12px;margin:10px 0}</style></head><body>
+  th{background:#e6f4f1;color:#0f766e}.info{background:#e6f4f1;border:1px solid #ccc;padding:8px 12px;margin:10px 0}
+  .confid{margin-top:22px;border-top:1px solid #bbb;padding-top:8px;color:#64748b;font-size:10px;font-style:italic}
+  @media print{.confid{position:fixed;bottom:0;left:0;right:0;margin-top:0}}</style></head><body>
   <h1>Central de Marcações de Vacinas — Farmácia Boavista</h1>
-  <div class="mut">Gerado em ${new Date().toLocaleString("pt-PT")} por ${esc(posto)}</div>`);
+  <div class="mut">Gerado em ${new Date().toLocaleString("pt-PT")} por ${esc(posto)}</div>
+  <div class="confid">Documento de uso interno — contém dados pessoais de utentes sujeitos a confidencialidade e ao Regulamento Geral sobre a Proteção de Dados. Não distribuir fora da Farmácia Boavista.</div>`);
   return w;
 }
 function fecharPDF(w){w.document.write("<script>window.onload=()=>window.print()<\/script></body></html>");w.document.close();}
