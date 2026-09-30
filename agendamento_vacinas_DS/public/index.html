@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Central de Marcações de Vacinas — Farmácia Boavista</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💉</text></svg>">
+<style>
+:root{--prim:#0f766e;--prim-esc:#115e59;--fundo:#f1f5f9;--carta:#fff;--borda:#e2e8f0;--texto:#0f172a;--muted:#64748b;--raio:10px;
+--erro:#b91c1c;--aviso:#b45309}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--fundo);color:var(--texto)}
+.topo{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 20px;background:linear-gradient(135deg,#0f766e,#134e4a);color:#fff;flex-wrap:wrap}
+.topo h1{margin:0;font-size:1.15rem}
+.sub{font-weight:400;font-size:.8rem;opacity:.85;margin:2px 0 0}
+.util{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:.8rem}
+#postoNome{padding:7px 9px;border:1px solid rgba(255,255,255,.4);border-radius:8px;background:rgba(255,255,255,.12);color:#fff;font-size:.8rem;width:150px}
+#postoNome::placeholder{color:rgba(255,255,255,.65)}
+.lig{font-weight:600}.lig-ok{color:#99f6e4}.lig-ma{color:#fecaca}
+.btn{border:1px solid var(--borda);background:#fff;color:var(--texto);padding:8px 12px;border-radius:8px;cursor:pointer;font-size:.85rem}
+.btn:hover{border-color:#94a3b8}
+.btn.primario{background:var(--prim);border-color:var(--prim);color:#fff}
+.btn.primario:hover{background:var(--prim-esc)}
+.btn.mini{padding:3px 8px;font-size:.75rem}
+.banner{margin:12px 20px 0;background:#fefce8;border:1px solid #fde047;border-radius:var(--raio);padding:10px 14px;font-size:.85rem;display:flex;justify-content:space-between;gap:10px;align-items:center}
+.banner.erro{background:#fef2f2;border-color:#fecaca}
+[hidden]{display:none !important}
+.tabs{display:flex;gap:6px;padding:12px 20px 0}
+.tab{border:1px solid var(--borda);border-bottom:none;background:#e2e8f0;padding:9px 16px;border-radius:10px 10px 0 0;cursor:pointer;font-size:.9rem}
+.tab.ativa{background:var(--carta);font-weight:600}
+main{padding:0 20px 30px}
+.painel{background:var(--carta);border:1px solid var(--borda);border-radius:0 var(--raio) var(--raio) var(--raio);padding:16px}
+.stats{display:flex;gap:8px;flex-wrap:wrap;padding:12px 20px 0}
+.stat{background:var(--carta);border:1px solid var(--borda);border-radius:999px;padding:6px 14px;font-size:.8rem;color:#334155}
+.stat b{font-size:1rem;color:var(--texto)}
+.barra{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;align-items:flex-end}
+.campo{display:flex;flex-direction:column}
+.campo label{font-size:.72rem;font-weight:600;color:var(--muted);margin-bottom:3px;text-transform:uppercase;letter-spacing:.03em}
+input,select,textarea{padding:8px;border:1px solid var(--borda);border-radius:8px;font-size:.9rem;background:#fff;color:var(--texto)}
+table{width:100%;border-collapse:collapse;font-size:.88rem}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--borda);vertical-align:top}
+th{font-size:.75rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+tr:hover td{background:#f8fafc}
+tr.utl td{cursor:pointer}
+.badge{display:inline-block;padding:2px 9px;border-radius:999px;font-size:.72rem;font-weight:600;white-space:nowrap}
+.b-agendado{background:#dbeafe;color:#1d4ed8}
+.b-administrado{background:#dcfce7;color:#15803d}
+.b-faltou{background:#fef3c7;color:#b45309}
+.b-cancelado{background:#e2e8f0;color:#64748b}
+.chip{display:inline-block;background:#ccfbf1;color:#0f766e;border-radius:6px;padding:1px 7px;font-size:.72rem;font-weight:700;margin-right:3px}
+.vazio{color:var(--muted);padding:24px 0;text-align:center}
+.mut{font-size:.78rem;color:var(--muted)}
+/* calendário em grelha (estilo flash) */
+.barra-semana{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+.barra-semana h2{font-size:1rem;margin:0 8px;color:var(--prim)}
+.cal-grelha{display:grid;gap:4px;min-width:860px}
+.grelha-scroll{overflow-x:auto;padding-bottom:6px}
+.cal-hora{font-size:.72rem;color:var(--muted);padding-top:12px;text-align:right;padding-right:6px}
+.cal-dia{background:#f8fafc;border:1px solid var(--borda);border-radius:8px;padding:6px 8px;font-size:.8rem;font-weight:600;text-align:center}
+.cal-dia small{display:block;font-size:.68rem;font-weight:400;color:var(--muted)}
+.cal-dia.hoje{outline:2px solid var(--prim)}
+.cal-dia.fechado{background:#fef2f2;border-color:#fecaca;color:var(--erro)}
+.cal-celula{min-height:54px;border:1px dashed #cbd5e1;border-radius:8px;padding:3px;cursor:pointer;position:relative}
+.cal-celula:hover{background:#f0fdfa;border-color:var(--prim)}
+.cal-celula.indisponivel{border-style:solid;border-color:#eef2f6;background:repeating-linear-gradient(45deg,#f8fafc,#f8fafc 6px,#eef2f6 6px,#eef2f6 12px);cursor:not-allowed;opacity:.6}
+.cartao{border-radius:6px;padding:4px 6px;font-size:.74rem;margin-bottom:3px;border-left:4px solid;cursor:pointer}
+.cartao strong{display:block;font-size:.76rem}
+.est-agendado{background:#dbeafe;border-left-color:#1d4ed8}
+.est-administrado{background:#dcfce7;border-left-color:#15803d}
+.est-faltou{background:#fef3c7;border-left-color:#d97706}
+.est-cancelado{background:#e2e8f0;border-left-color:#94a3b8;opacity:.6}
+.just{color:var(--aviso);font-size:.66rem}
+.cfg-titulo{font-size:.8rem;color:var(--prim);margin:16px 0 8px;text-transform:uppercase;letter-spacing:.04em}
+.campo textarea{width:100%;font-family:inherit;resize:vertical}
+.check{flex-direction:row;align-items:center;gap:6px;padding-bottom:6px}
+.check input{width:auto}
+.check label{margin:0}
+/* modal / pin */
+.fundo-modal{position:fixed;inset:0;background:rgba(10,25,40,.5);display:flex;align-items:center;justify-content:center;z-index:40}
+.modal{background:#fff;border-radius:12px;padding:20px;width:min(480px,94vw);max-height:88vh;overflow:auto}
+.modal h3{margin:0 0 10px;color:var(--prim)}
+.modal .botoes{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+#ecra-pin{position:fixed;inset:0;background:#0f2233;display:flex;align-items:center;justify-content:center;z-index:50}
+#ecra-pin .caixa{background:#fff;border-radius:12px;padding:28px;width:min(400px,92vw);text-align:center}
+#ecra-pin h1{color:var(--prim);font-size:1.05rem;margin:0 0 6px}
+#ecra-pin p{font-size:.85rem;color:#555;margin:6px 0}
+#ecra-pin input{text-align:center;width:100%;margin:8px 0}
+.erro-msg{color:var(--erro);font-size:.85rem;min-height:18px;margin-top:8px}
+@media print{.topo .util,.tabs,.btn,.sem-print{display:none !important}
+body{background:#fff}main,.painel{max-width:none}}
+</style>
+</head>
+<body>
+
+<div id="ecra-pin">
+  <div class="caixa">
+    <h1>Central de Marcações de Vacinas<br>Farmácia Boavista</h1>
+    <p id="pin-estado">A verificar o servidor…</p>
+    <input id="pin-posto" placeholder="Nome do posto (ex.: Posto 1)">
+    <input id="pin-codigo" type="password" maxlength="6" placeholder="Código de arranque (só 1º acesso)" hidden>
+    <input id="pin-input" type="password" maxlength="12" placeholder="PIN">
+    <div class="erro-msg" id="pin-erro"></div>
+    <button class="btn primario" style="width:100%" onclick="entrar()">Entrar</button>
+    <p class="mut" style="margin-top:14px">Os dados ficam apenas no servidor da farmácia. Sem o PIN não é possível aceder aos registos.</p>
+  </div>
+</div>
+
+<header class="topo">
+  <div>
+    <h1>Central de Marcações de Vacinas — Farmácia Boavista</h1>
+    <p class="sub">Gripe (G) · COVID-19 (C) · Ambas (G+C)</p>
+  </div>
+  <div class="util">
+    <span class="lig" id="lig">a ligar…</span>
+    <span id="util-posto"></span>
+    <button class="btn mini" onclick="sair()">Fechar sessão</button>
+  </div>
+</header>
+
+<div class="banner" id="banner" hidden><span id="banner-txt"></span><button class="btn mini" onclick="document.getElementById('banner').hidden=true">✕</button></div>
+
+<div class="tabs">
+  <button class="tab ativa" id="tab-l-btn" onclick="mostrarTab('l')">Utentes</button>
+  <button class="tab" id="tab-c-btn" onclick="mostrarTab('c')">Calendário semanal</button>
+  <button class="tab" id="tab-g-btn" onclick="mostrarTab('g')">Configuração</button>
+  <button class="tab" id="tab-h-btn" onclick="mostrarTab('h')">Histórico</button>
+</div>
+
+<main>
+  <div class="stats" id="stats"></div>
+
+  <section id="tab-l" class="painel">
+    <div class="barra">
+      <div class="campo"><label>Nome</label><input id="f-nome" placeholder="Nome do utente" style="width:220px" maxlength="120"></div>
+      <div class="campo"><label>Contacto</label><input id="f-contacto" placeholder="Telefone / email" style="width:180px" maxlength="60"></div>
+      <div class="campo"><label>Vacina</label>
+        <select id="f-vacina"><option value="G">Gripe (G)</option><option value="C">COVID-19 (C)</option><option value="G+C">Ambas (G+C)</option></select>
+      </div>
+      <div class="campo"><label>Observações</label><input id="f-obs" placeholder="opcional" style="width:180px" maxlength="200"></div>
+      <button class="btn primario" onclick="addUtente()">Adicionar</button>
+    </div>
+    <div class="barra">
+      <div class="campo"><label>Importar .txt (nome; contacto; vacina — contacto opcional)</label><input type="file" id="ficheiro-txt" accept=".txt,text/plain"></div>
+      <div class="campo"><label>Pesquisar</label><input id="pesquisa" placeholder="Nome ou contacto…" style="width:220px"></div>
+      <button class="btn" onclick="exportarUtentesPDF()">Exportar PDF</button>
+      <button class="btn" onclick="exportarCSV('utentes')">Exportar CSV</button>
+    </div>
+    <div style="overflow-x:auto">
+      <table>
+        <thead><tr><th>Nome</th><th>Contacto</th><th>Vacina</th><th>Estado</th><th>Marcação</th><th class="sem-print">Ações</th></tr></thead>
+        <tbody id="corpo-utentes"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="tab-c" class="painel" hidden>
+    <div class="barra-semana">
+      <button class="btn" onclick="mudarSemana(-1)">← Semana anterior</button>
+      <h2 id="cal-periodo"></h2>
+      <button class="btn" onclick="mudarSemana(1)">Semana seguinte →</button>
+      <button class="btn mini" onclick="irParaSemanaAtual()">Hoje</button>
+      <input type="date" id="pdf-dia" title="Dia a exportar (PDF/CSV)">
+      <button class="btn mini" onclick="exportarCalPDF('dia')">PDF (dia)</button>
+      <button class="btn mini" onclick="exportarCalPDF('semana')">PDF (semana completa)</button>
+      <button class="btn mini" onclick="exportarCSV('marcacoes',document.getElementById('pdf-dia').value||isoHoje(),document.getElementById('pdf-dia').value||isoHoje())">CSV (dia)</button>
+      <button class="btn mini" onclick="exportarCSV('marcacoes',diasDaSemana()[0],diasDaSemana()[diasDaSemana().length-1])">CSV (semana)</button>
+      <span class="mut">Sábado: só das 09:30–12:00 e das 15:00–17:00 e com aviso de confirmação.</span>
+    </div>
+    <div class="grelha-scroll"><div class="cal-grelha" id="grelha"></div></div>
+  </section>
+
+  <section id="tab-g" class="painel" hidden>
+    <p class="mut" style="margin-top:0">Alterar o horário não move marcações já feitas — as marcações existentes ficam como estão (e as horas deixam de ser oferecidas para novas marcações).</p>
+
+    <h2 class="cfg-titulo">Horário dos dias úteis</h2>
+    <div class="barra">
+      <div class="campo"><label>Manhã — início</label><input type="time" id="g-horaInicio"></div>
+      <div class="campo"><label>Manhã — fim</label><input type="time" id="g-horaFim"></div>
+      <div class="campo"><label>Tarde — início</label><input type="time" id="g-horaInicio2"></div>
+      <div class="campo"><label>Tarde — fim</label><input type="time" id="g-horaFim2"></div>
+    </div>
+
+    <h2 class="cfg-titulo">Horário de sábado <span class="mut">— por norma não se vacina ao sábado; a marcação pede confirmação</span></h2>
+    <div class="barra">
+      <div class="campo"><label>Manhã — início</label><input type="time" id="g-sabadoInicio"></div>
+      <div class="campo"><label>Manhã — fim</label><input type="time" id="g-sabadoFim"></div>
+      <div class="campo"><label>Tarde — início</label><input type="time" id="g-sabadoInicio2"></div>
+      <div class="campo"><label>Tarde — fim</label><input type="time" id="g-sabadoFim2"></div>
+    </div>
+
+    <div class="barra">
+      <div class="campo"><label>Intervalo entre marcações</label>
+        <select id="g-intervaloMin"><option value="15">15 min</option><option value="30">30 min</option><option value="60">60 min</option></select></div>
+      <div class="campo"><label>Máx. por hora</label><input type="number" id="g-maxPorHora" min="1" max="20" style="width:90px"></div>
+      <div class="campo check"><input type="checkbox" id="g-mostrarSabado"><label>Mostrar o sábado no calendário</label></div>
+    </div>
+
+    <h2 class="cfg-titulo">Dias de encerramento (feriados / férias)</h2>
+    <div class="barra">
+      <div class="campo" style="flex:1;min-width:300px"><label>Uma data por linha (AAAA-MM-DD) — nesses dias a farmácia não vacina e não aceita marcações</label>
+        <textarea id="g-diasFechados" rows="4" placeholder="2026-12-08&#10;2026-12-25"></textarea></div>
+    </div>
+
+    <h2 class="cfg-titulo">Cópia de segurança</h2>
+    <div class="barra" style="border:1px solid var(--borda);border-radius:8px;padding:10px 12px">
+      <div class="campo" style="flex:1;min-width:260px"><label>Pasta noutro posto da rede (vazio = pasta local «backups»)</label>
+        <input id="g-pastaBackup" placeholder="\\POSTO-SALA\vacinas-backup ou /mnt/backup/vacinas" style="width:100%"></div>
+      <button class="btn" onclick="testarBackup()">Testar caminho</button>
+      <button class="btn" onclick="backupAgora()">Backup agora</button>
+      <span class="mut" id="backup-estado"></span>
+    </div>
+
+    <div class="barra">
+      <button class="btn primario" onclick="guardarConfigUI()">Guardar configuração</button>
+      <span class="mut" id="config-estado"></span>
+    </div>
+  </section>
+
+  <section id="tab-h" class="painel" hidden>
+    <div class="barra" style="justify-content:space-between">
+      <p class="mut" style="margin:0">Últimas 500 operações, com o posto que as executou.</p>
+      <div style="display:flex;gap:8px">
+        <button class="btn" onclick="exportarJSON()">Exportar dados (JSON)</button>
+      </div>
+    </div>
+    <div style="overflow-x:auto">
+      <table>
+        <thead><tr><th>Quando</th><th>Posto</th><th>Ação</th><th>Detalhe</th></tr></thead>
+        <tbody id="corpo-historico"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<div id="modal" class="fundo-modal" hidden onclick="if(event.target===this)fecharModal()">
+  <div class="modal" id="modal-conteudo"></div>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>

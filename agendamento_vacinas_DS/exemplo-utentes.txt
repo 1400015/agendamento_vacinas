@@ -1,0 +1,4 @@
+Maria Fernandes; 912 345 678; G
+João Santos; joao.santos@email.pt; C
+Ana Rodrigues; 934 567 890; G+C
+Carlos Pereira; 945 678 901; gripe

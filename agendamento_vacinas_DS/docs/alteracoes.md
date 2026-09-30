@@ -1,30 +1,5 @@
 # Alterações
 
-## 2026-09-30 (5) — Pasta `agendamento_vacinas_DS/` (snapshot pronto a mover)
-
-Pasta criada a pedido, com um snapshot exato do `HEAD` (via `git archive`):
-22 ficheiros versionados — servidor, `src/`, `public/`, testes, docs, `LICENSE`,
-`package.json`, `config.exemplo.json` e `.github/` — byte a byte iguais ao
-repositório, **sem** `dados.json`, `config.json`, `config-pin.json`,
-`codigo-arranque.txt`, `backups/` nem `servidor.log`.
-
-Serve para o conteúdo ser movido para o repositório novo. O push direto para
-lá não é possível daqui: a credencial do Freebuff é uma instalação de GitHub App
-com acesso a **um** repositório (`1400015/agendamento_vacinas`) e responde
-*Repository not found* a qualquer outro.
-
-Não é uma segunda cópia de trabalho: as alterações continuam a ser feitas na
-raiz e esta pasta deve ser removida depois de movida. O `README.md` dentro dela
-descreve corretamente a raiz do repositório novo.
-
-Lembretes para o repositório novo:
-- O `.github/workflows/ci.yml` só corre se a pasta for extraída para a **raiz**
-do repositório (como diretório `.github/` na raiz, não aninhado).
-- O primeiro arranque gera `codigo-arranque.txt` (setup do primeiro acesso) e, se
-`dados.json` ainda não existir, arranca vazio.
-- `config.json` pode ficar de fora — é criado com os defeitos no primeiro arranque
-(o `config.exemplo.json` serve de referência).
-
 ## 2026-09-30 (4) — Painel de configuração, dias de encerramento e exportação CSV
 
 Três melhorias para o uso no balcão: deixar de obrigar a editar `config.json` à
